@@ -7,9 +7,12 @@
 🔒 회원 프로필(자유서술 메모 포함)과 합성 문장은 로그·오류 응답에 남기지 않는다.
    로그에는 requestId, 문장 길이, 건수, 처리 시간만 남긴다.
 
+코스 소개·추천 이유(#7): POST /explanations. LLM(Gemini) 키가 없거나 실패·검증 실패면 규칙 문장으로 대체한다.
+
 실행: uvicorn app.main:app --host 0.0.0.0 --port 8000
 """
 import logging
+import os
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -20,12 +23,16 @@ from fastapi.responses import JSONResponse
 
 from tripin_ai.classification import class_names_of
 from tripin_ai.encoder import to_base64
+from tripin_ai.explain.course_index import CourseIndex
+from tripin_ai.explain.llm import default_client
+from tripin_ai.explain.prompts import Place
+from tripin_ai.explain.service import explain
 from tripin_ai.templates import (TEMPLATE_SETS, Attraction, LikedTrip, ServiceProfile, TravelerSurvey,
                                  attraction_text, profile_text, traveler_text)
 
 from .config import Settings, load_settings
 from .schemas import (AttractionIn, BatchItemOut, BatchRequest, BatchResponse, EmbeddingRequest, EmbeddingResponse,
-                      ProfileIn)
+                      ExplanationRequest, ExplanationResponse, ProfileIn, ReasonOut)
 
 log = logging.getLogger("tripin.embedding")
 
@@ -35,6 +42,8 @@ class State:
         self.settings: Settings = load_settings()
         self.encoder = None
         self.load_error: str | None = None
+        self.course_index: CourseIndex | None = None
+        self.llm = None
 
 
 state = State()
@@ -44,6 +53,24 @@ def encoder_factory(settings: Settings):
     """테스트에서 가짜 인코더로 바꿔 끼운다."""
     from tripin_ai.encoder import Encoder
     return Encoder(settings.model_name, settings.model_version)
+
+
+def course_index_path(settings: Settings) -> str:
+    return os.environ.get("COURSE_INDEX_PATH", f"data/interim/course_index/{settings.model_version}.npz")
+
+
+def _load_explainer() -> None:
+    """코스 색인과 LLM은 없어도 서버가 뜬다(그때는 문체 예시 없이 생성하거나 규칙 문장)."""
+    path = course_index_path(state.settings)
+    if os.path.exists(path):
+        index = CourseIndex(path)
+        if index.model_version == state.settings.model_version:
+            state.course_index = index
+        else:
+            log.warning("course index model version differs: %s", index.model_version)
+    state.llm = default_client()
+    log.info("explainer ready courses=%s llm=%s", len(state.course_index) if state.course_index else 0,
+             getattr(state.llm, "model", None))
 
 
 def _load_encoder() -> None:
@@ -63,6 +90,7 @@ async def lifespan(_: FastAPI):
         raise RuntimeError(f"알 수 없는 TEMPLATE_VERSION: {state.settings.template_version}")
     # 모델 로딩은 수십 초 걸릴 수 있어 백그라운드로 한다. 그동안 요청은 503(백엔드가 재시도).
     threading.Thread(target=_load_encoder, daemon=True).start()
+    _load_explainer()
     yield
 
 
@@ -150,3 +178,32 @@ def embed_attractions(request: BatchRequest):
     log.info("embedded batch items=%d ms=%.0f", len(texts), (time.perf_counter() - start) * 1000)
     return BatchResponse(dimension=int(vectors.shape[1]),
                          items=[BatchItemOut(id=item.id, embedding_base64=to_base64(v)) for item, v in zip(request.items, vectors)])
+
+
+@app.post("/explanations", response_model=ExplanationResponse, response_model_by_alias=True)
+def explain_course(request: ExplanationRequest):
+    start = time.perf_counter()
+    encoder = _ready_encoder()
+    if any(not p.name.strip() for p in request.places):
+        raise HTTPException(status_code=400, detail={"code": "EMPTY_NAME"})
+    places = [Place(id=p.id, name=p.name, class_names=class_names_of(p.lcls_systm1, p.lcls_systm2, p.lcls_systm3),
+                    region_name=p.region_name, description=p.description, day=p.day, order=p.order,
+                    matched_features=p.matched_features, closest_liked_region=p.closest_liked_region)
+              for p in request.places]
+    # 문체 예시 검색용 코스 벡터: 색인과 같은 관광지 문장(템플릿 v1)으로 만든다.
+    vectors = None
+    if state.course_index is not None:
+        vectors = encoder.encode([attraction_text(Attraction(p.name, p.class_names, p.region_name, p.description), "v1")
+                                  for p in places])
+    result = explain(request.region_name, request.days, places, vectors, state.course_index, state.llm,
+                     check_claims=os.environ.get("EXPLAIN_CLAIM_CHECK", "0") == "1")
+    log.info("explained requestId=%s places=%d title=%s intro=%s llmError=%s ms=%.0f", request.request_id, len(places),
+             result.title_source, result.intro_source, result.llm_error, (time.perf_counter() - start) * 1000)
+    return ExplanationResponse(
+        title=result.title, intro=result.intro,
+        reasons=[ReasonOut(id=p.id, reason=result.reasons[p.id], source=result.reason_sources[p.id],
+                           personal_reason=result.personal_reasons.get(p.id)) for p in places],
+        title_source=result.title_source, intro_source=result.intro_source,
+        ai_generated="llm" in {result.title_source, result.intro_source, *result.reason_sources.values()},
+        prompt_version=result.prompt_version, generator_model=result.generator_model,
+        example_course_ids=result.example_course_ids)

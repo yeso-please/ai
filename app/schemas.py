@@ -65,3 +65,43 @@ class BatchItemOut(CamelModel):
 class BatchResponse(CamelModel):
     dimension: int
     items: list[BatchItemOut]
+
+
+class PlaceIn(CamelModel):
+    id: str
+    name: str
+    lcls_systm1: str | None = None
+    lcls_systm2: str | None = None
+    lcls_systm3: str | None = None
+    region_name: str = ""
+    description: str = ""
+    day: int = 1
+    order: int = 1
+    matched_features: list[str] = Field(default_factory=list)   # 장소 특징 ∩ 요청자 취향 (예: 바다, 산책)
+    closest_liked_region: str = ""   # 🔒 LLM에 보내지 않는다. 본인 전용 문장에만 쓴다.
+
+
+class ExplanationRequest(CamelModel):
+    request_id: str
+    region_name: str
+    days: int = Field(ge=1, le=30)
+    places: list[PlaceIn] = Field(min_length=1, max_length=40)
+
+
+class ReasonOut(CamelModel):
+    id: str
+    reason: str                       # 모두에게 보여도 되는 문장 (설문 답이 드러나지 않음)
+    source: str                       # "llm" | "rule"
+    personal_reason: str | None = None   # 🔒 취향 기준 회원 본인에게만 보여 준다
+
+
+class ExplanationResponse(CamelModel):
+    title: str
+    intro: str
+    reasons: list[ReasonOut]
+    title_source: str
+    intro_source: str
+    ai_generated: bool                # 하나라도 LLM 문장이면 true → 화면에 "AI가 작성" 표시
+    prompt_version: str
+    generator_model: str | None
+    example_course_ids: list[str]

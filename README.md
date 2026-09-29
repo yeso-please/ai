@@ -28,6 +28,10 @@ python -m venv .venv
 | `MODEL_VERSION` | `mminilm-l12-v1` | 백엔드 `embedding.model-version`과 같아야 한다 |
 | `TEMPLATE_VERSION` | `1` | 백엔드 `embedding.template-version`과 같아야 한다 (`tripin_ai/templates.py`의 `TEMPLATE_SETS`) |
 | `MAX_BATCH_ITEMS` | `64` | `/embeddings/batch` 최대 건수 |
+| `GEMINI_API_KEY` / `GEMINI_API_KEY_FILE` | 없음 | `/explanations`의 LLM 키 (파일이면 YAML `gemini.api.key`). 없으면 규칙 문장만 |
+| `GEMINI_MODEL` | `gemini-flash-lite-latest` | 생성 모델 |
+| `COURSE_INDEX_PATH` | `data/interim/course_index/<MODEL_VERSION>.npz` | 관광공사 추천코스 색인 (`scripts/build_course_index.py`) |
+| `EXPLAIN_CLAIM_CHECK` | `0` | `1`이면 소개글 사실 주장을 LLM으로 한 번 더 확인 (호출 2배, 현재 판정이 엄격해 기본 끔) |
 
 모델 로딩(CPU 약 20초) 동안 요청은 503을 받는다(백엔드가 재시도). Docker: `docker build -t tripin-ai . && docker run -p 8000:8000 tripin-ai`
 
@@ -72,6 +76,20 @@ python -m venv .venv
 | 버전 | 서버 `MODEL_VERSION`·`TEMPLATE_VERSION`과 요청이 다르면 **409**. 다른 모델·규칙의 벡터가 섞이지 않게 한다 |
 | 상태 코드 | 200 / 400 형식 오류·빈 문장(재시도 안 함) / 409 버전 불일치(재시도 안 함) / 503 로딩 중(재시도) / 500 예상 못 한 오류(재시도) |
 | 개인정보 | 프로필·메모·합성 문장은 로그와 오류 응답에 남기지 않는다. 형식 오류 응답도 입력값을 되돌려 주지 않는다 |
+
+**`POST /explanations`** — 코스 제목·소개글·장소별 추천 이유 (#7)
+
+```json
+{"requestId": "r1", "regionName": "강원특별자치도 강릉시", "days": 1,
+ "places": [{"id": "1", "name": "경포해변", "lclsSystm1": "NA", "lclsSystm2": "NA02", "lclsSystm3": "NA020900",
+             "regionName": "강원특별자치도 강릉시", "description": "…", "day": 1, "order": 1,
+             "matchedFeatures": ["바다", "산책"], "closestLikedRegion": "속초"}]}
+```
+→ `{"title", "intro", "reasons": [{"id", "reason", "source", "personalReason"}], "titleSource", "introSource", "aiGenerated", "promptVersion", "generatorModel", "exampleCourseIds"}`
+
+- 비슷한 관광공사 추천코스를 **임베딩으로 검색해 문체 예시**로 주고(RAG), 사실은 `places`에 있는 것만 쓰게 한다. 결과를 검증(예시 코스의 장소·근거 없는 숫자·과장 표현·예시 문장 베끼기·길이)하고, 걸린 부분만 규칙 문장으로 대체한다.
+- `reason`은 모두에게 보여도 되는 문장이다. 🔒 `personalReason`(좋아하신 여행지 언급)은 **취향 기준 회원 본인에게만** 보여 준다. `closestLikedRegion`은 LLM에 보내지 않는다.
+- `aiGenerated`가 true면 화면에 "AI가 작성" 표시. 소개글은 편집을 마치고 저장할 때 다시 만든다(백엔드).
 
 ## 평가·학습 (요약)
 
