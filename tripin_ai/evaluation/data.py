@@ -20,7 +20,9 @@ class EvalData:
 
 
 def load(attraction_order: list[str] | None = None, include_shopping: bool = False,
-         n_folds: int = 5, seed: int = 42, eval_dir: Path = EVAL_DIR) -> EvalData:
+         n_folds: int = 5, seed: int = 42, eval_dir: Path = EVAL_DIR, restrict_to: set[str] | None = None) -> EvalData:
+    """restrict_to: 이 contentid만 후보·방문으로 쓴다(예: 설명이 있는 관광지만으로 공정 비교).
+    분할(fold_of)은 제한하기 전 전체 여행자 기준으로 만들어, 제한해도 같은 여행자는 같은 겹에 있다."""
     attractions = pd.read_csv(eval_dir / "attractions.csv", dtype=str)
     if attraction_order is not None:
         attractions = attractions.set_index("contentid").loc[attraction_order].reset_index()
@@ -29,7 +31,8 @@ def load(attraction_order: list[str] | None = None, include_shopping: bool = Fal
     key = (attractions.lDongRegnCd + "-" + attractions.lDongSignguCd).fillna("").values
     # 시군구 코드가 없는 관광지는 어느 지역 후보에도 넣지 않는다.
     is_candidate = ~attractions.contenttypeid.isin(excluded).values & (key != "")
-    candidates = {k: np.where(is_candidate & (key == k))[0] for k in np.unique(key[is_candidate])}
+    allowed = attractions.contentid.isin(restrict_to).values if restrict_to is not None else np.ones(len(key), bool)
+    candidates = {k: np.where(is_candidate & allowed & (key == k))[0] for k in np.unique(key[is_candidate])}
 
     travelers = pd.read_csv(eval_dir / "travelers.csv", dtype=str)
     visits = pd.read_csv(eval_dir / "visits.csv", dtype=str)
@@ -46,6 +49,8 @@ def load(attraction_order: list[str] | None = None, include_shopping: bool = Fal
     ids = np.array(sorted(visits.travel_id.unique()))
     order = np.random.default_rng(seed).permutation(len(ids))
     fold_of = {ids[i]: int(n % n_folds) for n, i in enumerate(order)}
+    if restrict_to is not None:
+        visits = visits[allowed[visits.a_idx.astype(int).values]]
     return EvalData(attractions, travelers, visits, candidates, fold_of, n_folds)
 
 

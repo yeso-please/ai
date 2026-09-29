@@ -40,6 +40,8 @@ def train_fold(args, data, fold: int, attraction_texts: list[str], traveler_text
     print(f"[fold {fold}] 학습 예시 {len(triplets)}건, 음성 출처 {triplets.attrs['negative_sources']}")
 
     model = SentenceTransformer(args.base_model, device=args.device)
+    # 설명을 붙인 관광지 문장(템플릿 v1)은 평균 약 190토큰이라 기본 128에서 대부분 잘린다. 저장한 모델에 함께 기록된다.
+    model.max_seq_length = args.max_seq_length
     model_dir = Path("data/interim/models") / args.version / f"fold{fold}"
     training_args = SentenceTransformerTrainingArguments(
         output_dir=str(model_dir / "checkpoints"), num_train_epochs=args.epochs, max_steps=args.max_steps or -1,
@@ -79,6 +81,7 @@ def train_fold(args, data, fold: int, attraction_texts: list[str], traveler_text
             "negative_sources": triplets.attrs["negative_sources"], "epochs": args.epochs, "max_steps": args.max_steps,
             "batch_size": args.batch_size, "lr": args.lr, "seed": args.seed, "train_seconds": round(train_seconds),
             "embed_seconds": round(embed_seconds), "attraction_template": args.attraction_template,
+            "max_seq_length": args.max_seq_length,
             "traveler_template": args.traveler_template}
     (out / f"fold{fold}_train.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"[fold {fold}] 학습 {train_seconds:.0f}초, 임베딩 {embed_seconds:.0f}초 → {out}")
@@ -98,6 +101,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--max-seq-length", type=int, default=128)
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Colab GPU에서는 cuda")
     args = parser.parse_args()
 
