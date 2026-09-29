@@ -4,10 +4,8 @@
 우리 코스 벡터와 비교할 수 있다(모델을 바꾸면 색인도 다시 만든다).
 
 입력: data/raw/tourapi/courses/{courses,stops,overviews}.csv (collect_tourapi_courses.py),
-      data/interim/course_overviews_backend.csv (백엔드 DB official_courses.description, 데모에서 이관된 소개글 146개)
-        만들기: docker exec tripin-local-postgres psql -U tripin_local -d tripin_local -c "\copy (select source_content_id
-                as course_id, description as overview from app.official_courses where source_system='TOUR_API'
-                and description<>'') to stdout with csv header" > data/interim/course_overviews_backend.csv
+      data/interim/course_overviews_backend.csv (개발 RDS official_courses.description, 데모에서 이관된 소개글)
+        만들기: scripts/export_from_rds.py (백엔드 데이터의 기준은 개발 RDS)
       data/interim/emb/<기성 버전>/attractions_v1.csv (지점 관광지 문장)
 출력: data/interim/course_index/<모델 버전>.npz  (TourAPI 공개 데이터만 담는다)
 
