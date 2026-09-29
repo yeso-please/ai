@@ -25,10 +25,14 @@ import urllib.request
 from pathlib import Path
 
 BASE_URL = "https://apis.data.go.kr/B551011/KorService2/areaBasedList2"
+CLASS_CODE_URL = "https://apis.data.go.kr/B551011/KorService2/lclsSystmCode2"
 # 관광지·문화시설·축제공연행사·레포츠·쇼핑. 숙박(32)·음식점(39)은 관광지 매칭 대상이 아니다.
 DEFAULT_CONTENT_TYPES = [12, 14, 15, 28, 38]
+# KorService2는 옛 분류(cat1~3)를 비워 두고 새 분류체계(lclsSystm1~3)를 채운다. 둘 다 받아 둔다.
 FIELDS = ["contentid", "contenttypeid", "title", "addr1", "addr2", "mapx", "mapy",
-          "areacode", "sigungucode", "lDongRegnCd", "lDongSignguCd", "cat1", "cat2", "cat3", "firstimage"]
+          "areacode", "sigungucode", "lDongRegnCd", "lDongSignguCd",
+          "lclsSystm1", "lclsSystm2", "lclsSystm3", "cat1", "cat2", "cat3",
+          "cpyrhtDivCd", "modifiedtime", "firstimage"]
 
 
 def load_key() -> str:
@@ -65,15 +69,36 @@ def fetch_page(key: str, region: int, content_type: int, page: int, rows: int) -
     sys.exit(f"요청 실패: region={region} type={content_type} page={page} ({err})")
 
 
+def save_class_codes(key: str, path: Path) -> None:
+    """새 분류체계(lclsSystm1~3) 코드 → 이름 표. 관광지 문장 템플릿이 분류명을 쓴다."""
+    params = {"serviceKey": key, "MobileOS": "ETC", "MobileApp": "tripin-ai", "_type": "json",
+              "numOfRows": 1000, "pageNo": 1, "lclsSystmListYn": "Y"}
+    with urllib.request.urlopen(CLASS_CODE_URL + "?" + urllib.parse.urlencode(params), timeout=30) as resp:
+        items = json.loads(resp.read().decode("utf-8"))["response"]["body"]["items"]["item"]
+    fields = ["lclsSystm1Cd", "lclsSystm1Nm", "lclsSystm2Cd", "lclsSystm2Nm", "lclsSystm3Cd", "lclsSystm3Nm"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(items)
+    print(f"저장: {path} ({len(items)}건)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--regions", type=int, nargs="+", required=True, help="법정동 시도코드 lDongRegnCd (11 서울, 28 인천, 41 경기 …)")
+    parser.add_argument("--class-codes", metavar="PATH", help="분류체계 코드표만 받아 이 경로에 저장하고 끝낸다")
+    parser.add_argument("--regions", type=int, nargs="+", help="법정동 시도코드 lDongRegnCd (11 서울, 28 인천, 41 경기 …)")
     parser.add_argument("--types", type=int, nargs="+", default=DEFAULT_CONTENT_TYPES)
     parser.add_argument("--out", default="data/raw/tourapi")
     parser.add_argument("--rows", type=int, default=1000)
     args = parser.parse_args()
 
     key = load_key()
+    if args.class_codes:
+        save_class_codes(key, Path(args.class_codes))
+        return
+    if not args.regions:
+        parser.error("--regions 또는 --class-codes가 필요합니다.")
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     calls = 0

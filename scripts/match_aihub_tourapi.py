@@ -19,6 +19,9 @@ import pandas as pd
 TOURIST_VISIT_TYPES = {1, 2, 3, 4, 5, 6, 7, 8, 13}
 # 축제·행사(15)는 장소가 아니라 기간 콘텐츠라 매칭 대상에서 뺀다.
 EXCLUDED_CONTENT_TYPES = {15}
+# 평가 데이터에서 "매칭됨"으로 보는 기준. 표본 검수 결과에 따라 조정한다.
+MATCH_MAX_DIST_M = 500
+MATCH_MIN_SIM = 0.8
 # 매장 지점·행사·부속 프로그램 이름. "한복남 경복궁점"이 경복궁으로 붙는 것을 막는다.
 NOISE_TITLE = re.compile(r"(점|지점|야간개장|축제|페스티벌|별빛야행|체험|투어|공연|전시회)$")
 
@@ -78,9 +81,11 @@ def main() -> None:
                 best = (i, sim, dist[i])
         i, sim, d = best
         rows.append({
-            "visit_name": p.VISIT_AREA_NM, "visit_type": p.VISIT_AREA_TYPE_CD, "visits": counts[p.n],
+            "n": p.n, "visit_name": p.VISIT_AREA_NM, "visit_type": p.VISIT_AREA_TYPE_CD, "visits": counts[p.n],
+            "visit_addr": p.ROAD_NM_ADDR if isinstance(p.ROAD_NM_ADDR, str) else p.LOTNO_ADDR,
             "contentid": None if i is None else tour.contentid.iat[i],
             "tour_title": None if i is None else tour.title.iat[i],
+            "tour_addr": None if i is None else tour.addr1.iat[i],
             "contenttypeid": None if i is None else tour.contenttypeid.iat[i],
             "sim": round(sim, 3), "dist_m": None if d is None else round(d),
         })
