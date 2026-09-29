@@ -60,6 +60,7 @@ python -m venv .venv
 ```
 → `{"dimension": 384, "items": [{"id": "126508", "embeddingBase64": "..."}]}` (최대 64건)
 
+- 처리 시간(CPU, 기성 MiniLM): 64건 약 0.6초 → 전국 관광지 약 3.2만 곳이면 약 5분(설명을 붙이면 더 걸린다).
 - 분류는 TourAPI KorService2 **새 분류체계 `lclsSystm1~3`**(옛 `cat1~3`은 대부분 비어 있다). `tags`는 받지만 쓰지 않는다(학습한 관광지 문장에 없음).
 
 **공통**
