@@ -26,9 +26,20 @@ EVAL_DIR = Path("data/interim/eval")
 EXCLUDED_CONTENT_TYPES = {"15"}
 
 
-def attraction_texts(version: str) -> pd.DataFrame:
+def load_descriptions(path: str | None) -> dict[str, str]:
+    """contentid → 설명(TourAPI overview). HTML 태그는 걷어낸다."""
+    if not path:
+        return {}
+    df = pd.read_csv(path, dtype=str).dropna(subset=["description"])
+    text = df.description.str.replace(r"<[^>]+>", " ", regex=True).str.replace(r"&[a-z]+;", " ", regex=True)
+    return dict(zip(df.contentid, text))
+
+
+def attraction_texts(version: str, descriptions: dict[str, str] | None = None) -> pd.DataFrame:
+    descriptions = descriptions or {}
     df = pd.read_csv(EVAL_DIR / "attractions.csv", dtype=str)
     df = df[~df.contenttypeid.isin(EXCLUDED_CONTENT_TYPES)].copy()
+    df["overview"] = df.contentid.map(descriptions).fillna("")
     df["text"] = [
         attraction_text(Attraction(name=r.title, class_names=[r.lcls1_name, r.lcls2_name, r.lcls3_name],
                                    region_name=region_from_address(r.addr1),
@@ -64,13 +75,17 @@ def main() -> None:
     parser.add_argument("--model-version", default=DEFAULT_MODEL_VERSION)
     parser.add_argument("--attraction-template", default="v0")
     parser.add_argument("--traveler-template", default="aihub-v1")
+    parser.add_argument("--descriptions", help="contentid,description CSV (템플릿 v1이 설명을 붙인다)")
+    parser.add_argument("--skip-travelers", action="store_true", help="관광지만 다시 임베딩")
     args = parser.parse_args()
 
     out = Path("data/interim/emb") / args.model_version
     out.mkdir(parents=True, exist_ok=True)
     encoder = Encoder(args.model_name, args.model_version)
-    save(encoder, attraction_texts(args.attraction_template), out / f"attractions_{args.attraction_template}")
-    save(encoder, traveler_texts(args.traveler_template), out / f"travelers_{args.traveler_template}")
+    frame = attraction_texts(args.attraction_template, load_descriptions(args.descriptions))
+    save(encoder, frame, out / f"attractions_{args.attraction_template}")
+    if not args.skip_travelers:
+        save(encoder, traveler_texts(args.traveler_template), out / f"travelers_{args.traveler_template}")
 
 
 if __name__ == "__main__":

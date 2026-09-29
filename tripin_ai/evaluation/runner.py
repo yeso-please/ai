@@ -54,17 +54,17 @@ def popularity_matched(target: float, candidates: np.ndarray) -> np.ndarray:
     return np.abs(np.log2(np.clip(candidates, 1, None)) - np.log2(target)) <= RELATIVE_WINDOW
 
 
-def evaluate(data: EvalData, scorers: list, seed: int = 0, warm_min_visits: int = 4):
+def evaluate(data: EvalData, scorers: list, seed: int = 0, warm_min_visits: int = 4, folds: list[int] | None = None):
     rng = np.random.default_rng(seed)
     units = defaultdict(lambda: defaultdict(list))   # (조건, 지표) → 방식 → [(여행자, 분자, 분모)]
     n_attractions = len(data.attractions)
     fold = data.visits.travel_id.map(data.fold_of).values
 
-    for f in range(data.n_folds):
+    for f in (folds if folds is not None else range(data.n_folds)):
         train = data.visits[fold != f]
         pop = popularity(train, n_attractions)
         for scorer in scorers:
-            scorer.fit(train)
+            scorer.fit(train, fold=f)
 
         for travel_id, g in data.visits[fold == f].groupby("travel_id"):
             visited = dict(zip(g.a_idx.astype(int), g.s))
