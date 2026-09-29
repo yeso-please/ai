@@ -16,7 +16,7 @@ from .data import popularity
 class Scorer:
     name = ""
 
-    def fit(self, train_visits: pd.DataFrame) -> None:
+    def fit(self, train_visits: pd.DataFrame, fold: int | None = None) -> None:
         pass
 
     def score(self, travel_id: str, items: np.ndarray, history=None) -> np.ndarray | None:
@@ -41,7 +41,7 @@ class PopularityScorer(Scorer):
         self.n = n_attractions
         self.pop = np.zeros(n_attractions)
 
-    def fit(self, train_visits):
+    def fit(self, train_visits, fold=None):
         self.pop = popularity(train_visits, self.n)
 
     def score(self, travel_id, items, history=None):
@@ -69,8 +69,8 @@ class PopularityFloorTasteScorer(Scorer):
         self.taste, self.floor = taste, floor
         self.popularity = PopularityScorer(n_attractions)
 
-    def fit(self, train_visits):
-        self.popularity.fit(train_visits)
+    def fit(self, train_visits, fold=None):
+        self.popularity.fit(train_visits, fold)
 
     def score(self, travel_id, items, history=None):
         # 취향 점수는 −1~1이라 +10이면 하한선을 넘은 곳이 항상 위에 온다.
@@ -103,7 +103,7 @@ class PureSVDScorer(Scorer):
         self.n, self.factors = n_attractions, factors
         self.V = None
 
-    def fit(self, train_visits):
+    def fit(self, train_visits, fold=None):
         users = {t: i for i, t in enumerate(train_visits.travel_id.unique())}
         rows = train_visits.travel_id.map(users).values
         matrix = csr_matrix((np.ones(len(rows)), (rows, train_visits.a_idx.astype(int).values)), shape=(len(users), self.n))
@@ -115,3 +115,23 @@ class PureSVDScorer(Scorer):
             return None
         profile = self.V[[i for i, _ in history]].sum(axis=0)
         return self.V[items] @ profile
+
+
+class FoldTasteScorer(Scorer):
+    """겹마다 따로 학습한 모델의 벡터로 점수를 매긴다(평가 묶음 여행자는 그 겹의 학습에 쓰이지 않았다).
+
+    vectors: 겹 번호 → (관광지 벡터 (전체 관광지 수 × 차원, 임베딩 안 한 곳은 0), {travel_id: 여행자 벡터})
+    """
+
+    def __init__(self, name: str, vectors: dict[int, tuple[np.ndarray, dict[str, np.ndarray]]]):
+        self.name, self.vectors = name, vectors
+        self.current = None
+
+    def fit(self, train_visits, fold=None):
+        self.current = self.vectors.get(fold)
+
+    def score(self, travel_id, items, history=None):
+        if self.current is None:
+            return None
+        a_vec, t_vec = self.current
+        return a_vec[items] @ t_vec[travel_id]
