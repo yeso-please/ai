@@ -6,9 +6,28 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.26",
     "pandas>=2.1",
+    "sentence-transformers>=3",
+    "torch>=2.2",
 ]
 
 [project.optional-dependencies]
+# 임베딩 서버 (app/)
+serve = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+# 평가·학습 (scripts/, tripin_ai/evaluation, tripin_ai/training)
+train = [
+    "scipy>=1.11",
+    "scikit-learn>=1.4",
+    "datasets>=2.18",
+    "accelerate>=0.30",
+]
 dev = [
     "pytest>=8",
+    "httpx>=0.27",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

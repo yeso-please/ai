@@ -1,0 +1,8 @@
+.venv
+.git
+.issue-drafts
+data/raw
+data/interim
+reports
+tests
+**/__pycache__
