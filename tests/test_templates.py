@@ -59,3 +59,23 @@ def test_base64_round_trip_is_float32_little_endian():
     encoded = to_base64(vector)
     assert encoded == "AAAAPwAAoL8AAEBA"
     assert np.array_equal(from_base64(encoded), vector)
+
+
+def test_profile_text_is_order_independent_and_skips_exclusions_and_mbti():
+    from tripin_ai.templates import LikedTrip, ServiceProfile, profile_text
+    a = ServiceProfile(experience_tags=["산책", "바다"], travel_mbti="ENFP", schedule_density="RELAXED",
+                       exclude_tags=["물놀이"],
+                       liked_trips=[LikedTrip("제주특별자치도 제주시", ["바다"]),
+                                    LikedTrip("강원특별자치도 강릉시", ["산책", "바다"], note="  새벽 바다가\n좋았다 ")])
+    b = ServiceProfile(experience_tags=["바다", "산책"], exclude_tags=["물놀이"],
+                       liked_trips=list(reversed(a.liked_trips)))
+    text = profile_text(a)
+    assert text == profile_text(b)
+    assert text == ("바다, 산책을 좋아하는 여행자. 좋았던 여행지는 강원특별자치도 강릉시(바다, 산책), 제주특별자치도 제주시(바다). "
+                    "강원특별자치도 강릉시: 새벽 바다가 좋았다")
+    assert "물놀이" not in text and "ENFP" not in text
+
+
+def test_profile_text_empty_profile_is_empty():
+    from tripin_ai.templates import ServiceProfile, profile_text
+    assert profile_text(ServiceProfile()) == ""
