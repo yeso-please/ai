@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AI Hub 원본 데이터 (재배포 금지)
+data/raw/
+data/interim/
+# 이슈 초안 (gh로 게시 후 삭제)
+.issue-drafts/
