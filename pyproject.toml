@@ -1,0 +1,14 @@
+[project]
+name = "tripin-ai"
+version = "0.1.0"
+description = "TriPin 취향 임베딩 서비스와 오프라인 평가·학습"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
