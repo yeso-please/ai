@@ -19,6 +19,11 @@ FILES = [
     Path("data/interim/emb/mminilm-l12-v1/attractions_v0.csv"),
     Path("data/interim/emb/mminilm-l12-v1/attractions_v1.csv"),   # 설명 포함 (백엔드 DB 설명 약 4천 곳)
     Path("data/interim/emb/mminilm-l12-v1/travelers_aihub-v1.csv"),
+    Path("data/reference/tourapi_lcls_codes.csv"),            # 코스 테마 이름
+    # 코스 쌍 실험(--course-pairs). 수집 전이면 빠진다.
+    Path("data/raw/tourapi/courses/courses.csv"),
+    Path("data/raw/tourapi/courses/stops.csv"),
+    Path("data/raw/tourapi/courses/overviews.csv"),
 ]
 
 
@@ -27,7 +32,7 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in FILES:
-            if "__pycache__" not in path.parts:
+            if "__pycache__" not in path.parts and path.exists():
                 zf.write(path, path.as_posix())
     print(f"{out} ({out.stat().st_size / 1e6:.1f}MB, 파일 {len(FILES)}개)")
 
