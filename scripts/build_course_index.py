@@ -4,6 +4,10 @@
 우리 코스 벡터와 비교할 수 있다(모델을 바꾸면 색인도 다시 만든다).
 
 입력: data/raw/tourapi/courses/{courses,stops,overviews}.csv (collect_tourapi_courses.py),
+      data/interim/course_overviews_backend.csv (백엔드 DB official_courses.description, 데모에서 이관된 소개글 146개)
+        만들기: docker exec tripin-local-postgres psql -U tripin_local -d tripin_local -c "\copy (select source_content_id
+                as course_id, description as overview from app.official_courses where source_system='TOUR_API'
+                and description<>'') to stdout with csv header" > data/interim/course_overviews_backend.csv
       data/interim/emb/<기성 버전>/attractions_v1.csv (지점 관광지 문장)
 출력: data/interim/course_index/<모델 버전>.npz  (TourAPI 공개 데이터만 담는다)
 
@@ -30,6 +34,8 @@ def main() -> None:
     parser.add_argument("--model-version", default=DEFAULT_MODEL_VERSION)
     parser.add_argument("--texts", default="data/interim/emb/mminilm-l12-v1/attractions_v1.csv")
     parser.add_argument("--out-dir", default="data/interim/course_index")
+    parser.add_argument("--extra-overviews", default="data/interim/course_overviews_backend.csv",
+                        help="course_id,overview CSV. 수집한 소개글이 없는 코스를 채운다")
     args = parser.parse_args()
 
     courses = pd.read_csv(COURSE_DIR / "courses.csv", dtype=str)
@@ -38,6 +44,11 @@ def main() -> None:
     if (COURSE_DIR / "overviews.csv").exists():
         o = pd.read_csv(COURSE_DIR / "overviews.csv", dtype=str).fillna("")
         overviews = dict(zip(o.course_id, o.overview.str.replace(r"<[^>]+>", " ", regex=True)))
+    if Path(args.extra_overviews).exists():
+        extra = pd.read_csv(args.extra_overviews, dtype=str).fillna("")
+        for course_id, text in zip(extra.course_id, extra.overview.str.replace(r"<[^>]+>", " ", regex=True)):
+            if text.strip() and not str(overviews.get(course_id, "")).strip():
+                overviews[course_id] = text
     codes = pd.read_csv("data/reference/tourapi_lcls_codes.csv", dtype=str)
     theme_names = dict(zip(codes.lclsSystm3Cd, codes.lclsSystm3Nm))
     texts = dict(pd.read_csv(args.texts, dtype=str)[["contentid", "text"]].values)
