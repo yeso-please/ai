@@ -94,6 +94,8 @@ def append(path: Path, fields: list[str], rows: list[dict]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-calls", type=int, default=700, help="이번 실행에서 쓸 최대 호출 수 (하루 한도 1,000 안에서)")
+    parser.add_argument("--overviews-first", action="store_true",
+                        help="지점이 수집된 코스의 소개글을 먼저 받는다 (#7 문체 예시를 빨리 확보할 때)")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     client = Client(load_key(), args.max_calls)
@@ -114,18 +116,26 @@ def main() -> None:
             course_ids = [row["contentid"] for row in csv.DictReader(f)]
 
         stops_path, stops_done_path = OUT / "stops.csv", OUT / "stops_done.csv"
-        done = done_ids(stops_done_path, "course_id")
-        for course_id in [c for c in course_ids if c not in done]:
-            stops = items_of(client.get("detailInfo2", contentId=course_id, contentTypeId=25, numOfRows=100, pageNo=1))
-            append(stops_path, STOP_FIELDS, [{**s, "course_id": course_id} for s in stops])
-            append(stops_done_path, ["course_id", "n_stops"], [{"course_id": course_id, "n_stops": len(stops)}])
-
         overviews_path = OUT / "overviews.csv"
-        done = done_ids(overviews_path, "course_id")
-        for course_id in [c for c in course_ids if c not in done]:
-            items = items_of(client.get("detailCommon2", contentId=course_id))
-            overview = items[0].get("overview", "") if items else ""
-            append(overviews_path, ["course_id", "overview"], [{"course_id": course_id, "overview": overview}])
+
+        def collect_stops():
+            done = done_ids(stops_done_path, "course_id")
+            for course_id in [c for c in course_ids if c not in done]:
+                stops = items_of(client.get("detailInfo2", contentId=course_id, contentTypeId=25, numOfRows=100, pageNo=1))
+                append(stops_path, STOP_FIELDS, [{**s, "course_id": course_id} for s in stops])
+                append(stops_done_path, ["course_id", "n_stops"], [{"course_id": course_id, "n_stops": len(stops)}])
+
+        def collect_overviews(only: set[str] | None = None):
+            done = done_ids(overviews_path, "course_id")
+            for course_id in [c for c in course_ids if c not in done and (only is None or c in only)]:
+                items = items_of(client.get("detailCommon2", contentId=course_id))
+                overview = items[0].get("overview", "") if items else ""
+                append(overviews_path, ["course_id", "overview"], [{"course_id": course_id, "overview": overview}])
+
+        if args.overviews_first:
+            collect_overviews(only=done_ids(stops_done_path, "course_id"))
+        collect_stops()
+        collect_overviews()
         print("수집 완료")
     except QuotaExceeded as e:
         print(f"중단: {e}. 다음 실행에서 이어서 받는다.")

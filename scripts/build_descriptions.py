@@ -2,9 +2,7 @@
 
 설명 출처(먼저 있는 것을 쓴다)
   1. 백엔드 DB에 적재된 설명: data/interim/descriptions_backend.csv (contentid, description)
-     만들기: docker exec tripin-local-postgres psql -U tripin_local -d tripin_local -c "\\copy (select
-             source_content_id as contentid, description from app.attractions where source_system='TOUR_API'
-             and description is not null and description<>'') to stdout with csv header" > data/interim/descriptions_backend.csv
+     만들기: scripts/export_from_rds.py (백엔드 데이터의 기준은 개발 RDS)
   2. TourAPI 추천코스 지점 설명(subdetailoverview): data/raw/tourapi/courses/stops.csv
      코스 수집(collect_tourapi_courses.py)에서 덤으로 받은 것. 관광지 상세 조회 호출을 아낄 수 있다.
 
