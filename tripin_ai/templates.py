@@ -11,18 +11,28 @@
 """
 from dataclasses import dataclass, field
 
-ATTRACTION_TEMPLATES = ("v0", "v1")
+ATTRACTION_TEMPLATES = ("v0", "v1", "v2")
 TRAVELER_TEMPLATES = ("aihub-v1",)
 PROFILE_TEMPLATES = ("service-v1",)
 DESCRIPTION_MAX_CHARS = 300
 NOTE_MAX_CHARS = 200
 
 # 서버 계약 templateVersion → (회원 템플릿, 관광지 템플릿). 한 번 정한 번호의 규칙은 바꾸지 않는다.
-#   1: 현재 온보딩(선호 경험·좋았던 여행지). 관광지는 설명이 있으면 붙인다.
-#   2: AI Hub 설문 형식 온보딩(여행 스타일·동기·선호 여행지). backend#67 결정 후 사용.
+#   1: 구형 온보딩. 관광지는 설명이 있으면 붙인다.
+#   2: AI Hub 온보딩. 관광지는 설명과 TourAPI 콘텐츠 유형을 붙인다.
 TEMPLATE_SETS = {
     1: ("service-v1", "v1"),
-    2: ("aihub-v1", "v1"),
+    2: ("aihub-v1", "v2"),
+}
+
+CONTENT_TYPE_LABELS = {
+    12: "관광지",
+    14: "문화시설",
+    15: "축제·행사",
+    28: "레포츠",
+    32: "숙박",
+    38: "쇼핑",
+    39: "음식점",
 }
 
 # 여행 스타일 1~7 척도. 1~3은 왼쪽, 5~7은 오른쪽을 선호, 4는 중립(문장에 넣지 않음).
@@ -56,6 +66,7 @@ class Attraction:
     class_names: list[str] = field(default_factory=list)   # 분류 1~3단계 이름
     region_name: str = ""
     description: str = ""
+    content_type_id: int | None = None
 
 
 @dataclass
@@ -92,12 +103,16 @@ def attraction_text(item: Attraction, version: str = "v0") -> str:
         if name and name not in classes:
             classes.append(name)
     parts = [item.name]
+    if version == "v2":
+        content_type = CONTENT_TYPE_LABELS.get(item.content_type_id)
+        if content_type:
+            parts.append(content_type)
     if classes:
         parts.append(" > ".join(classes))
     if item.region_name:
         parts.append(item.region_name)
     text = ". ".join(parts) + "."
-    if version == "v1" and item.description:
+    if version in ("v1", "v2") and item.description:
         text += " " + " ".join(item.description.split())[:DESCRIPTION_MAX_CHARS]
     return text
 
