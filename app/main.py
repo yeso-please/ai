@@ -86,8 +86,9 @@ def _load_encoder() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if state.settings.template_version not in TEMPLATE_SETS:
-        raise RuntimeError(f"알 수 없는 TEMPLATE_VERSION: {state.settings.template_version}")
+    unknown = sorted(set(state.settings.template_versions) - set(TEMPLATE_SETS))
+    if not state.settings.template_versions or unknown:
+        raise RuntimeError(f"알 수 없는 TEMPLATE_VERSIONS: {unknown}")
     # 모델 로딩은 수십 초 걸릴 수 있어 백그라운드로 한다. 그동안 요청은 503(백엔드가 재시도).
     threading.Thread(target=_load_encoder, daemon=True).start()
     _load_explainer()
@@ -118,10 +119,10 @@ def _ready_encoder():
 
 def _check_versions(model_version: str, template_version: int) -> None:
     settings = state.settings
-    if model_version != settings.model_version or template_version != settings.template_version:
+    if model_version != settings.model_version or template_version not in settings.template_versions:
         raise HTTPException(status_code=409, detail={
             "code": "VERSION_MISMATCH", "serverModelVersion": settings.model_version,
-            "serverTemplateVersion": settings.template_version})
+            "serverTemplateVersions": list(settings.template_versions)})
 
 
 def compose_profile(profile: ProfileIn, template_version: int) -> str:
@@ -147,7 +148,7 @@ def compose_attraction(item: AttractionIn, template_version: int) -> str:
 def health():
     encoder = state.encoder
     return {"status": "UP" if encoder else ("LOADING" if state.load_error is None else "DOWN"),
-            "modelVersion": state.settings.model_version, "templateVersion": state.settings.template_version,
+            "modelVersion": state.settings.model_version, "templateVersions": list(state.settings.template_versions),
             "dimension": encoder.dimension if encoder else None, "loadError": state.load_error}
 
 

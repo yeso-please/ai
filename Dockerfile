@@ -21,6 +21,6 @@ COPY tripin_ai ./tripin_ai
 COPY app ./app
 COPY data/reference ./data/reference
 
-ENV MODEL_NAME=${MODEL_NAME} MODEL_VERSION=mminilm-l12-v1 TEMPLATE_VERSION=1
+ENV MODEL_NAME=${MODEL_NAME} MODEL_VERSION=mminilm-l12-v1 TEMPLATE_VERSIONS=1,2
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

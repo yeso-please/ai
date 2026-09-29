@@ -33,7 +33,7 @@ class FakeEncoder:
 @pytest.fixture
 def client(monkeypatch):
     fake = FakeEncoder()
-    monkeypatch.setattr(main.state, "settings", Settings("fake", "mminilm-l12-v1", 1, 64))
+    monkeypatch.setattr(main.state, "settings", Settings("fake", "mminilm-l12-v1", (1, 2), 64))
     monkeypatch.setattr(main.state, "encoder", None)
     monkeypatch.setattr(main.state, "load_error", None)
     monkeypatch.setattr(main, "encoder_factory", lambda settings: fake)
@@ -74,7 +74,19 @@ def test_same_profile_gives_same_vector_and_excludes_negatives(client):
 
 def test_version_mismatch_is_409(client):
     assert client.post("/embeddings", json=body(modelVersion="other")).status_code == 409
-    assert client.post("/embeddings", json=body(templateVersion=2)).status_code == 409
+    assert client.post("/embeddings", json=body(templateVersion=3)).status_code == 409
+
+
+def test_legacy_and_aihub_template_versions_are_accepted(client):
+    legacy = client.post("/embeddings", json=body())
+    aihub = client.post("/embeddings", json=body(
+        templateVersion=2,
+        profile={"travelStyles": {"1": 2, "3": 6, "5": 3, "6": 5},
+                 "travelMotives": [2, 7], "likedRegions": ["강원 강릉시"]}))
+    assert legacy.status_code == 200
+    assert aihub.status_code == 200
+    assert "자연을 꽤 선호" in client.fake.texts[-1]
+    assert "새로운 경험" in client.fake.texts[-1]
 
 
 def test_empty_profile_is_400(client):
@@ -112,7 +124,7 @@ def test_logs_do_not_contain_profile_text(client, caplog):
 
 def test_health_reports_versions(client):
     h = client.get("/health").json()
-    assert h == {"status": "UP", "modelVersion": "mminilm-l12-v1", "templateVersion": 1, "dimension": DIM, "loadError": None}
+    assert h == {"status": "UP", "modelVersion": "mminilm-l12-v1", "templateVersions": [1, 2], "dimension": DIM, "loadError": None}
 
 
 ITEM = {"id": "126508", "name": "경복궁", "contentTypeId": "12", "lclsSystm1": "HS", "lclsSystm2": "HS01",

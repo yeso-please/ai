@@ -100,7 +100,7 @@ def test_api_explanations_with_fake_llm(monkeypatch):
     from tests.test_api import FakeEncoder
 
     fake_llm = FakeLLM(GOOD)
-    monkeypatch.setattr(main.state, "settings", Settings("fake", "mminilm-l12-v1", 1, 64))
+    monkeypatch.setattr(main.state, "settings", Settings("fake", "mminilm-l12-v1", (1, 2), 64))
     monkeypatch.setattr(main.state, "encoder", FakeEncoder())
     monkeypatch.setattr(main, "_load_encoder", lambda: None)
     monkeypatch.setattr(main, "_load_explainer", lambda: None)
