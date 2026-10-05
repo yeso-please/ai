@@ -42,7 +42,7 @@ class EmbeddingResponse(CamelModel):
 class AttractionIn(CamelModel):
     id: str
     name: str
-    content_type_id: str | None = None
+    content_type_id: int | str | None = None   # backend는 숫자, 계약 예시는 문자열. 둘 다 받는다
     lcls_systm1: str | None = None     # TourAPI KorService2 새 분류체계 코드
     lcls_systm2: str | None = None
     lcls_systm3: str | None = None

@@ -165,3 +165,11 @@ def test_batch_template_two_includes_tourapi_content_type(client):
     assert client.fake.texts[-1].startswith("경복궁. 문화시설.")
     assert "서울특별시 종로구" in client.fake.texts[-1]
     assert client.fake.texts[-1].endswith("조선의 법궁")
+
+
+def test_batch_accepts_numeric_content_type_id_from_backend(client):
+    # backend AttractionEmbeddingBatchRequest는 contentTypeId를 숫자로 직렬화한다.
+    r = client.post("/embeddings/batch", json=batch(templateVersion=2, items=[{**ITEM, "contentTypeId": 14}]))
+
+    assert r.status_code == 200
+    assert client.fake.texts[-1].startswith("경복궁. 문화시설.")
