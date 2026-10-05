@@ -26,7 +26,7 @@ python -m venv .venv
 |---|---|---|
 | `MODEL_NAME` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Hugging Face 모델 id 또는 파인튜닝한 모델 폴더 |
 | `MODEL_VERSION` | `mminilm-l12-v1` | 백엔드 `embedding.model-version`과 같아야 한다 |
-| `TEMPLATE_VERSIONS` | `1,2` | 서버가 받을 템플릿 버전 목록. 쉼표로 구분하며 `tripin_ai/templates.py`의 `TEMPLATE_SETS`에 있는 값만 허용한다. 1은 기존 설문, 2는 AI Hub 설문 |
+| `TEMPLATE_VERSIONS` | `1,2` | 서버가 받을 템플릿 버전 목록. 쉼표로 구분하며 `tripin_ai/templates.py`의 `TEMPLATE_SETS`에 있는 값만 허용한다. 1은 구형 프로필·관광지 템플릿, 2는 AI Hub 프로필·관광지 유형 포함 템플릿 |
 | `MAX_BATCH_ITEMS` | `64` | `/embeddings/batch` 최대 건수 |
 | `GEMINI_API_KEY` / `GEMINI_API_KEY_FILE` | 없음 | `/explanations`의 LLM 키 (파일이면 YAML `gemini.api.key`). 없으면 규칙 문장만 |
 | `GEMINI_MODEL` | `gemini-flash-lite-latest` | 생성 모델 |
@@ -57,7 +57,7 @@ python -m venv .venv
 **`POST /embeddings/batch`** — 관광지 벡터 (backend #54 배치)
 
 ```json
-{"modelVersion": "mminilm-l12-v1", "templateVersion": 1,
+{"modelVersion": "mminilm-l12-v1", "templateVersion": 2,
  "items": [{"id": "126508", "name": "경복궁", "contentTypeId": "12",
             "lclsSystm1": "HS", "lclsSystm2": "HS01", "lclsSystm3": "HS010100",
             "regionName": "서울특별시 종로구", "description": "…"}]}
@@ -65,9 +65,9 @@ python -m venv .venv
 → `{"dimension": 384, "items": [{"id": "126508", "embeddingBase64": "..."}]}` (최대 64건)
 
 - 처리 시간(CPU, 기성 MiniLM): 64건 약 0.6초 → 전국 관광지 약 3.2만 곳이면 약 5분(설명을 붙이면 더 걸린다).
-- 분류는 TourAPI KorService2 **새 분류체계 `lclsSystm1~3`**(옛 `cat1~3`은 대부분 비어 있다). `tags`는 받지만 쓰지 않는다(학습한 관광지 문장에 없음).
+- 분류는 TourAPI KorService2 **새 분류체계 `lclsSystm1~3`**(옛 `cat1~3`은 대부분 비어 있다). template 2는 `contentTypeId`의 관광지·문화시설·축제·레포츠 유형을 포함한다. `contentTypeId`는 숫자(`12`)와 문자열(`"12"`)을 모두 받는다(backend는 숫자로 보낸다). `tags`는 요청에서 받지만 현재 학습 데이터 분포와 맞지 않아 임베딩 문장에는 넣지 않는다.
 
-서버는 템플릿 1·2 요청을 모두 받을 수 있다. 이중 지원은 기존에 저장된 템플릿 1 작업이 끝나기 전에 템플릿 2 온보딩이 배포되어도 처리할 수 있게 한다. 특정 버전만 허용하려면 `TEMPLATE_VERSIONS=2`처럼 명시한다. `TEMPLATE_VERSION` 단일 버전 설정은 사용하지 않는다.
+서버는 템플릿 1·2 요청을 모두 받을 수 있다. 템플릿 1은 구형 프로필·관광지 규칙, 템플릿 2는 AI Hub 프로필·관광지 유형 포함 규칙의 묶음이다. 이중 지원은 구형 대기 작업과 신규 설문을 함께 처리한다. 특정 버전만 허용하려면 `TEMPLATE_VERSIONS=2`처럼 명시한다. `TEMPLATE_VERSION` 단일 버전 설정은 사용하지 않는다. 템플릿 번호 의미는 불변이며 규칙 변경에는 새 번호를 발급한다.
 
 **공통**
 

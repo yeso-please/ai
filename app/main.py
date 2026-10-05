@@ -141,7 +141,15 @@ def compose_attraction(item: AttractionIn, template_version: int) -> str:
     _, attraction_template = TEMPLATE_SETS[template_version]
     return attraction_text(Attraction(
         name=item.name, class_names=class_names_of(item.lcls_systm1, item.lcls_systm2, item.lcls_systm3),
-        region_name=item.region_name, description=item.description), attraction_template)
+        region_name=item.region_name, description=item.description,
+        content_type_id=_content_type_id(item.content_type_id)), attraction_template)
+
+
+def _content_type_id(value: str | None) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
 
 
 @app.get("/health")

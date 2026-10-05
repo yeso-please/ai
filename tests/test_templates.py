@@ -18,6 +18,13 @@ def test_attraction_v1_appends_description_prefix():
     assert len(text) <= len("성산일출봉. ") + 300
 
 
+def test_attraction_v2_adds_tourapi_content_type():
+    item = Attraction(name="경복궁", region_name="서울특별시 종로구", description="조선의 법궁", content_type_id=14)
+    text = attraction_text(item, "v2")
+    assert text.startswith("경복궁. 문화시설. 서울특별시 종로구.")
+    assert text.endswith("조선의 법궁")
+
+
 def test_attraction_classes_are_deduplicated():
     item = Attraction(name="장터", class_names=["쇼핑", "시장", "시장"])
     assert attraction_text(item) == "장터. 쇼핑 > 시장."
