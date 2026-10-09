@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tripin_ai.evaluation import data as eval_data  # noqa: E402
 from tripin_ai.evaluation.metrics import bootstrap  # noqa: E402
 from tripin_ai.evaluation.runner import METRICS, evaluate  # noqa: E402
-from tripin_ai.evaluation.scorers import (FoldTasteScorer, ItemSimilarityScorer,  # noqa: E402
+from tripin_ai.evaluation.scorers import (FoldTasteScorer, ItemSimilarityScorer, ShuffledSurveyScorer,  # noqa: E402
                                           PopularityFloorTasteScorer, PopularityScorer, PureSVDScorer,
                                           RandomScorer, TasteScorer)
 
@@ -55,6 +55,8 @@ def main() -> None:
     parser.add_argument("--bootstrap", type=int, default=1000)
     parser.add_argument("--finetuned", nargs="*", default=[], help="scripts/finetune.py가 만든 버전들 (겹별 벡터)")
     parser.add_argument("--only-folds", type=int, nargs="*", help="이 겹만 평가 (파일럿용)")
+    parser.add_argument("--shuffled-control", action="store_true",
+                        help="학습한 취향마다 다른 여행자의 설문으로 점수를 매기는 대조군을 더한다 (개인화 몫 분리)")
     parser.add_argument("--baseline", default=BASELINE, help="짝지은 차이의 기준 방식 (예: 무작위)")
     parser.add_argument("--restrict-to", help="contentid 열이 있는 CSV. 이 관광지만 후보·정답으로 평가 (예: 설명이 있는 곳만)")
     args = parser.parse_args()
@@ -76,6 +78,8 @@ def main() -> None:
         vectors = load_fold_vectors(version, args.only_folds or range(args.folds))
         tuned = FoldTasteScorer(f"학습한 취향 ({version})", vectors)
         scorers += [tuned, PopularityFloorTasteScorer(tuned, n)]
+        if args.shuffled_control:
+            scorers.append(ShuffledSurveyScorer(tuned, args.seed))
 
     start = time.perf_counter()
     units = evaluate(data, scorers, seed=args.seed, folds=args.only_folds)
@@ -86,8 +90,10 @@ def main() -> None:
         tag += "__" + "+".join(args.finetuned)
     if args.only_folds:
         tag += "_fold" + "".join(map(str, args.only_folds))
+    if args.shuffled_control:
+        tag += "_shufctl"
     if args.baseline != BASELINE:
-        tag += "_vs-" + {"무작위": "random"}.get(args.baseline, args.baseline)
+        tag += "_vs-" + ("shuffled" if args.baseline.endswith("(대조군)") else {"무작위": "random"}.get(args.baseline, args.baseline))
     if args.restrict_to:
         tag += "_restricted-" + Path(args.restrict_to).stem
     results = {f"{c}/{m}": bootstrap(units[(c, m)], args.baseline, n_boot=args.bootstrap, seed=args.seed)

@@ -9,6 +9,8 @@
   주2 인기 맞춘 후보 AUC   만족한 곳을 같은 시군구에서 인기(방문 수)가 거의 같은 안 간 곳들보다 높게 두는 비율
   주3 덜 알려진 정답 적중@10, 추천 상위 10의 평균 인기 백분위(낮을수록 덜 알려진 곳)
   참고 방문 적중@10, Recall@10, nDCG@10 (인기 편향이 큰 방문 예측)
+  처음 보는 곳: 정답이 학습 묶음에서 한 번도 방문되지 않은 관광지일 때의 주2 AUC와, 그런 후보 안에서의 적중@10
+                (방문 기록으로 점수를 낼 수 없는 장소에 내용 기반 점수가 일반화되는지)
 """
 from collections import defaultdict
 
@@ -36,6 +38,9 @@ METRICS = {
     "ref_hit": "참고 방문 적중@10",
     "ref_recall": "참고 Recall@10",
     "ref_ndcg": "참고 nDCG@10",
+    "seen_m2_auc": "본 적 있는 정답의 주2 인기 맞춘 AUC (학습 묶음 방문 1 이상인 정답)",
+    "unseen_m2_auc": "처음 보는 정답의 주2 인기 맞춘 AUC (학습 묶음 방문 0인 정답)",
+    "unseen_hit": "처음 보는 곳 적중@10 (학습 묶음 방문 0인 후보 안에서)",
 }
 
 
@@ -121,8 +126,12 @@ def evaluate(data: EvalData, scorers: list, seed: int = 0, warm_min_visits: int 
                         if strong:
                             units[(condition, "m1_pair_5v3")][name].append((travel_id, sum(strong), len(strong)))
                     for item, negs in m2_units:
-                        units[(condition, "m2_pop_matched_auc")][name].append(
-                            (travel_id, auc(sc[item], np.array([sc[n] for n in negs])), 1.0))
+                        value = auc(sc[item], np.array([sc[n] for n in negs]))
+                        units[(condition, "m2_pop_matched_auc")][name].append((travel_id, value, 1.0))
+                        if pop[item] == 0:   # 음성도 방문 0으로 맞춰진다
+                            units[(condition, "unseen_m2_auc")][name].append((travel_id, value, 1.0))
+                        else:
+                            units[(condition, "seen_m2_auc")][name].append((travel_id, value, 1.0))
                     for cands, gains, noise in region_units:
                         scores = np.array([sc[c] for c in cands])
                         order = np.lexsort((noise, -scores))
@@ -139,4 +148,10 @@ def evaluate(data: EvalData, scorers: list, seed: int = 0, warm_min_visits: int 
                             t_idx = np.where(tail)[0]
                             t_top = t_idx[np.lexsort((noise[t_idx], -scores[t_idx]))[:K]]
                             units[(condition, "m3_tail_hit")][name].append((travel_id, float(tail_gold[t_top].any()), 1.0))
+                        unseen = pop[cands] == 0
+                        unseen_gold = unseen & (gains > 0)
+                        if unseen_gold.any() and unseen.sum() >= MIN_CANDIDATES:
+                            u_idx = np.where(unseen)[0]
+                            u_top = u_idx[np.lexsort((noise[u_idx], -scores[u_idx]))[:K]]
+                            units[(condition, "unseen_hit")][name].append((travel_id, float(unseen_gold[u_top].any()), 1.0))
     return units
