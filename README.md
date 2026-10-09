@@ -10,7 +10,7 @@
 | `tripin_ai/` | 서버와 실험이 같이 쓰는 코어: 문장 템플릿, 인코더, 평가(`evaluation/`), 학습(`training/`) |
 | `scripts/` | 데이터 수집·정리, 오프라인 임베딩, 평가, 파인튜닝 |
 | `reports/` | 실험 결과 (집계만) |
-| `docs/` | 데이터 카드(`data.md`), Colab 학습 방법(`colab.md`) |
+| `docs/` | 데이터 카드(`data.md`), 임베딩 문장 템플릿(`templates.md`), Colab 학습 방법(`colab.md`) |
 | `data/reference/` | TourAPI 분류체계 코드표 (서버가 씀) |
 | `data/raw`, `data/interim` | AI Hub·TourAPI 원본과 중간 산출물 — **커밋 금지**(AI Hub 재배포 금지, 레포는 공개) |
 
