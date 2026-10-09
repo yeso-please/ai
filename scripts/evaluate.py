@@ -55,6 +55,7 @@ def main() -> None:
     parser.add_argument("--bootstrap", type=int, default=1000)
     parser.add_argument("--finetuned", nargs="*", default=[], help="scripts/finetune.py가 만든 버전들 (겹별 벡터)")
     parser.add_argument("--only-folds", type=int, nargs="*", help="이 겹만 평가 (파일럿용)")
+    parser.add_argument("--baseline", default=BASELINE, help="짝지은 차이의 기준 방식 (예: 무작위)")
     parser.add_argument("--restrict-to", help="contentid 열이 있는 CSV. 이 관광지만 후보·정답으로 평가 (예: 설명이 있는 곳만)")
     args = parser.parse_args()
 
@@ -85,9 +86,11 @@ def main() -> None:
         tag += "__" + "+".join(args.finetuned)
     if args.only_folds:
         tag += "_fold" + "".join(map(str, args.only_folds))
+    if args.baseline != BASELINE:
+        tag += "_vs-" + {"무작위": "random"}.get(args.baseline, args.baseline)
     if args.restrict_to:
         tag += "_restricted-" + Path(args.restrict_to).stem
-    results = {f"{c}/{m}": bootstrap(units[(c, m)], BASELINE, n_boot=args.bootstrap, seed=args.seed)
+    results = {f"{c}/{m}": bootstrap(units[(c, m)], args.baseline, n_boot=args.bootstrap, seed=args.seed)
                for c in CONDITIONS for m in METRICS if (c, m) in units}
 
     lines = [f"# 추천 평가: {tag}", "",
@@ -97,7 +100,7 @@ def main() -> None:
              + (f", **평가한 겹: {args.only_folds}**" if args.only_folds else ""),
              f"- 후보: 방문 시군구의 TourAPI 관광지, 축제{'' if args.include_shopping else '·쇼핑'} 제외. 인기 = 학습 묶음의 매칭 방문 수"
              + (f". **`{args.restrict_to}`에 있는 관광지만** 후보·정답으로 씀" if args.restrict_to else ""),
-             f"- 괄호: 여행자 단위 부트스트랩 95% 신뢰구간 ({args.bootstrap}회). '인기 대비'는 같은 표본의 짝지은 차이",
+             f"- 괄호: 여행자 단위 부트스트랩 95% 신뢰구간 ({args.bootstrap}회). '{args.baseline} 대비'는 같은 표본의 짝지은 차이",
              f"- 실행 시간 {elapsed:.0f}초", ""]
     for condition, label in CONDITIONS.items():
         lines += [f"## {label}", ""]
@@ -107,7 +110,7 @@ def main() -> None:
                 continue
             any_entry = next(iter(result.values()))
             lines += [f"### {metric_label}", "", f"여행자 {any_entry['n_travelers']}명, 단위 {any_entry['n_units']:.0f}개", "",
-                      "| 방식 | 값 [95% CI] | 인기 대비 [95% CI] |", "|---|---|---|"]
+                      f"| 방식 | 값 [95% CI] | {args.baseline} 대비 [95% CI] |", "|---|---|---|"]
             pct = metric != "ref_ndcg"
             fmt = (lambda v: f"{v:.1%}") if pct else (lambda v: f"{v:.3f}")
             for method, r in result.items():
