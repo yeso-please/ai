@@ -105,3 +105,51 @@ class ExplanationResponse(CamelModel):
     prompt_version: str
     generator_model: str | None
     example_course_ids: list[str]
+
+
+class SummaryPlaceIn(CamelModel):
+    id: str
+    name: str
+    lcls_systm1: str | None = None
+    lcls_systm2: str | None = None
+    lcls_systm3: str | None = None
+    region_name: str = ""
+    description: str = ""
+
+
+class AttractionSummaryRequest(CamelModel):
+    request_id: str
+    items: list[SummaryPlaceIn] = Field(min_length=1, max_length=10)
+
+
+class AttractionSummaryOut(CamelModel):
+    id: str
+    one_line: str | None              # 검증에 걸리면 null (규칙 문장으로 채우지 않는다)
+    tags: list[str]                   # 항상 태그 사전의 값
+    basis: str                        # "SOURCE_SUMMARY" | "NAME_CATEGORY"
+    source: str                       # "llm" | "rule"
+    problems: list[str]
+
+
+class AttractionSummaryResponse(CamelModel):
+    items: list[AttractionSummaryOut]
+    prompt_version: str
+    generator_model: str | None
+    llm_error: str | None
+
+
+class RegionSummaryRequest(CamelModel):
+    request_id: str
+    region_name: str
+    class_counts: dict[str, int] = Field(default_factory=dict)   # 지역 관광지 lclsSystm3 → 개수
+    attractions: list[SummaryPlaceIn] = Field(min_length=1, max_length=8)
+
+
+class RegionSummaryResponse(CamelModel):
+    tagline: str | None
+    tags: list[str]
+    source: str
+    problems: list[str]
+    prompt_version: str
+    generator_model: str | None
+    llm_error: str | None
