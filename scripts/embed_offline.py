@@ -43,7 +43,8 @@ def attraction_texts(version: str, descriptions: dict[str, str] | None = None) -
     df["text"] = [
         attraction_text(Attraction(name=r.title, class_names=[r.lcls1_name, r.lcls2_name, r.lcls3_name],
                                    region_name=region_from_address(r.addr1),
-                                   description=getattr(r, "overview", "") or ""), version)
+                                   description=getattr(r, "overview", "") or "",
+                                   content_type_id=int(r.contenttypeid) if pd.notna(r.contenttypeid) else None), version)
         for r in df.itertuples()
     ]
     return df[["contentid", "text"]]
