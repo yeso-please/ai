@@ -17,7 +17,8 @@ FILES = [
     Path("data/interim/eval/travelers.csv"),
     Path("data/interim/eval/visits.csv"),
     Path("data/interim/emb/mminilm-l12-v1/attractions_v0.csv"),
-    Path("data/interim/emb/mminilm-l12-v1/attractions_v1.csv"),   # 설명 포함 (백엔드 DB 설명 약 4천 곳)
+    Path("data/interim/emb/mminilm-l12-v1/attractions_v1.csv"),   # 설명 포함
+    Path("data/interim/emb/mminilm-l12-v1/attractions_v2.csv"),   # 설명 + 콘텐츠 유형 (서비스 템플릿 2)
     Path("data/interim/emb/mminilm-l12-v1/travelers_aihub-v1.csv"),
     Path("data/reference/tourapi_lcls_codes.csv"),            # 코스 테마 이름
     # 코스 쌍 실험(--course-pairs). 수집 전이면 빠진다.

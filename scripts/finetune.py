@@ -45,7 +45,8 @@ def train_fold(args, data, fold: int | None, attraction_texts: list[str], travel
 
     label = "final" if fold is None else f"fold{fold}"
     train_ids = {t for t, f in data.fold_of.items() if f != fold}
-    triplets = build_triplets(data, train_ids, traveler_texts, attraction_texts, seed=args.seed + (fold or 0))
+    triplets = build_triplets(data, train_ids, traveler_texts, attraction_texts, seed=args.seed + (fold or 0),
+                              negatives=args.negatives)
     negative_sources = triplets.attrs["negative_sources"]
     if args.max_examples:
         triplets = triplets.head(args.max_examples)
@@ -77,7 +78,7 @@ def train_fold(args, data, fold: int | None, attraction_texts: list[str], travel
     trainer.train()
     train_seconds = time.perf_counter() - start
     model.save(str(model_dir))
-    info = {"fold": fold, "base_model": args.base_model, "examples": len(triplets), "course_pairs": args.course_pairs,
+    info = {"fold": fold, "base_model": args.base_model, "examples": len(triplets), "course_pairs": args.course_pairs, "negatives": args.negatives,
             "course_examples": n_course, "negative_sources": negative_sources, "epochs": args.epochs,
             "max_steps": args.max_steps, "batch_size": args.batch_size, "lr": args.lr, "seed": args.seed,
             "train_seconds": round(train_seconds), "attraction_template": args.attraction_template,
@@ -128,6 +129,8 @@ def main() -> None:
     parser.add_argument("--course-pairs", default="none", choices=["none", "real", "shuffled"],
                         help="TourAPI 추천코스 쌍을 보조로 섞는다. shuffled는 지점을 같은 시군구 무작위로 바꾼 통제군")
     parser.add_argument("--course-dir", default="data/raw/tourapi/courses")
+    parser.add_argument("--negatives", default="hard", choices=["hard", "taste"],
+                        help="taste: 설문이 가장 다른 여행자가 같은 시군구에서 만족한 곳을 음성으로 (장소 매력이 아니라 취향 차이를 배우게)")
     parser.add_argument("--final", action="store_true", help="서비스용: 전체 여행자로 학습 (평가용 겹 무시)")
     args = parser.parse_args()
 

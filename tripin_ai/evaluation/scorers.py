@@ -135,3 +135,33 @@ class FoldTasteScorer(Scorer):
             return None
         a_vec, t_vec = self.current
         return a_vec[items] @ t_vec[travel_id]
+
+
+class ShuffledSurveyScorer(Scorer):
+    """대조군: 같은 겹의 **다른 여행자** 설문 벡터로 점수를 매긴다.
+
+    관광지 벡터는 그대로이므로 "관광객이 갈 만한 곳" 같은 장소 자체의 매력은 그대로 남고, 개인 설문과의 대응만 깨진다.
+    원래 점수와의 차이가 설문(개인화)에서 나온 몫이다. 자기 자신과 짝지어지지 않게 한 칸씩 밀어서 섞는다.
+    """
+
+    def __init__(self, tuned: FoldTasteScorer, seed: int = 0):
+        self.name = f"{tuned.name} · 설문 섞음 (대조군)"
+        self.tuned, self.seed = tuned, seed
+        self.current = None
+
+    def fit(self, train_visits, fold=None):
+        vectors = self.tuned.vectors.get(fold)
+        if vectors is None:
+            self.current = None
+            return
+        a_vec, t_vec = vectors
+        ids = sorted(t_vec)
+        order = np.random.default_rng(self.seed + (fold or 0)).permutation(len(ids))
+        donor = {ids[order[i]]: ids[order[(i + 1) % len(ids)]] for i in range(len(ids))}
+        self.current = (a_vec, {t: t_vec[donor[t]] for t in ids})
+
+    def score(self, travel_id, items, history=None):
+        if self.current is None:
+            return None
+        a_vec, t_vec = self.current
+        return a_vec[items] @ t_vec[travel_id]

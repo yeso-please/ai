@@ -14,6 +14,7 @@
   python scripts/build_descriptions.py --write-texts
 """
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -26,6 +27,13 @@ SOURCES = [
     ("backend", Path("data/interim/descriptions_backend.csv"), "contentid", "description"),
     ("course_stop", Path("data/raw/tourapi/courses/stops.csv"), "subcontentid", "subdetailoverview"),
 ]
+
+
+def clean_description(text: str) -> str:
+    """TourAPI 코스 지점 설명에는 줄바꿈이 문자 그대로("\\n")·HTML 태그로 들어 있는 경우가 있다. 문장 템플릿에 섞이지 않게 공백으로 바꾼다."""
+    text = text.replace("\\n", " ").replace("\\r", " ")
+    text = re.sub(r"<[^>]+>", " ", text)
+    return " ".join(text.split())
 
 
 def main() -> None:
@@ -42,6 +50,7 @@ def main() -> None:
             continue
         df = pd.read_csv(path, dtype=str)[[id_col, text_col]].dropna()
         df = df.rename(columns={id_col: "contentid", text_col: "description"})
+        df["description"] = df.description.map(clean_description)
         df = df[df.description.str.strip().str.len() > 0].drop_duplicates("contentid")
         frames.append(df.assign(source=name))
         print(f"{name}: {len(df)}곳")
