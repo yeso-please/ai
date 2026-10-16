@@ -6,7 +6,7 @@
 
 | 폴더 | 내용 |
 |---|---|
-| `app/` | FastAPI 임베딩 서버 (`/embeddings`, `/embeddings/batch`, `/health`) — #1, #2 |
+| `app/` | FastAPI 서버: 임베딩(`/embeddings`, `/embeddings/batch`, `/health`) #1·#2, 코스 소개(`/explanations`) #7, 한 줄 소개·태그(`/summaries/*`) backend#89 |
 | `tripin_ai/` | 서버와 실험이 같이 쓰는 코어: 문장 템플릿, 인코더, 평가(`evaluation/`), 학습(`training/`) |
 | `scripts/` | 데이터 수집·정리, 오프라인 임베딩, 평가, 파인튜닝 |
 | `reports/` | 실험 결과 (집계만) |
@@ -28,7 +28,7 @@ python -m venv .venv
 | `MODEL_VERSION` | `mminilm-l12-v1` | 백엔드 `embedding.model-version`과 같아야 한다 |
 | `TEMPLATE_VERSIONS` | `1,2` | 서버가 받을 템플릿 버전 목록. 쉼표로 구분하며 `tripin_ai/templates.py`의 `TEMPLATE_SETS`에 있는 값만 허용한다. 1은 구형 프로필·관광지 템플릿, 2는 AI Hub 프로필·관광지 유형 포함 템플릿 |
 | `MAX_BATCH_ITEMS` | `64` | `/embeddings/batch` 최대 건수 |
-| `GEMINI_API_KEY` / `GEMINI_API_KEY_FILE` | 없음 | `/explanations`의 LLM 키 (파일이면 YAML `gemini.api.key`). 없으면 규칙 문장만 |
+| `GEMINI_API_KEY` / `GEMINI_API_KEY_FILE` | 없음 | `/explanations`·`/summaries/*`의 LLM 키 (파일이면 YAML `gemini.api.key`). 없으면 규칙 문장·규칙 태그만 |
 | `GEMINI_MODEL` | `gemini-flash-lite-latest` | 생성 모델 |
 | `COURSE_INDEX_PATH` | `data/interim/course_index/<MODEL_VERSION>.npz` | 관광공사 추천코스 색인 (`scripts/build_course_index.py`) |
 | `EXPLAIN_CLAIM_CHECK` | `0` | `1`이면 소개글 사실 주장을 LLM으로 한 번 더 확인 (호출 2배, 현재 판정이 엄격해 기본 끔) |
@@ -92,6 +92,23 @@ python -m venv .venv
 - 비슷한 관광공사 추천코스를 **임베딩으로 검색해 문체 예시**로 주고(RAG), 사실은 `places`에 있는 것만 쓰게 한다. 결과를 검증(예시 코스의 장소·근거 없는 숫자·과장 표현·예시 문장 베끼기·길이)하고, 걸린 부분만 규칙 문장으로 대체한다.
 - `reason`은 모두에게 보여도 되는 문장이다. 🔒 `personalReason`(좋아하신 여행지 언급)은 **취향 기준 회원 본인에게만** 보여 준다. `closestLikedRegion`은 LLM에 보내지 않는다.
 - `aiGenerated`가 true면 화면에 "AI가 작성" 표시. 소개글은 편집을 마치고 저장할 때 다시 만든다(백엔드).
+
+**`POST /summaries/attractions`** — 관광지 한 줄 소개·태그 초안 (backend#89). 한 번에 1~10곳, LLM 호출 1회
+
+```json
+{"requestId": "r1", "items": [{"id": "1", "name": "경포해변", "lclsSystm1": "NA", "lclsSystm2": "NA02",
+                               "lclsSystm3": "NA020900", "regionName": "강원특별자치도 강릉시", "description": "…"}]}
+```
+→ `{"items": [{"id", "oneLine", "tags", "basis", "source", "problems"}], "promptVersion", "generatorModel", "llmError"}`
+
+**`POST /summaries/region`** — 지역 태그라인·태그 초안. `classCounts`는 지역 관광지의 `lclsSystm3` → 개수, `attractions`는 대표 관광지 1~8곳
+
+→ `{"tagline", "tags", "source", "problems", "promptVersion", "generatorModel", "llmError"}`
+
+- **태그는 고정 사전(21개)의 값만** 준다(`tripin_ai/summary/tags.py`, 2026-10-10 확정). 분류코드 규칙 → 설명 키워드(카페·야경·꽃·시장·골목·산책) → 분위기 태그(감성여행·힐링·가족여행·데이트)만 LLM이 고른다. LLM이 고른 사전 밖 단어·근거 없는 태그는 버린다.
+- `basis`: 설명이 있으면 `SOURCE_SUMMARY`(설명 요약), 없으면 `NAME_CATEGORY`(이름·분류만으로 쓴 초안. 사실을 지어내지 않도록 프롬프트가 막고, 사람이 승인해야 화면에 나간다).
+- 검증(길이·과장 표현·근거 없는 숫자·다른 장소 이름)에 걸린 문장은 **null**이다. 규칙 문장으로 채우지 않는다. 백엔드가 다음 배치에서 다시 만든다.
+- 결과는 초안이다. 백엔드가 `DRAFT`로 저장하고 사람이 승인한 것만 API에 낸다. 한 줄 소개·태그는 표시용이라 임베딩 문장에 넣지 않는다.
 
 ## 평가·학습 (요약)
 

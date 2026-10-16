@@ -8,6 +8,8 @@
    로그에는 requestId, 문장 길이, 건수, 처리 시간만 남긴다.
 
 코스 소개·추천 이유(#7): POST /explanations. LLM(Gemini) 키가 없거나 실패·검증 실패면 규칙 문장으로 대체한다.
+한 줄 소개·태그(backend#89): POST /summaries/attractions, /summaries/region. 검증에 걸린 문장은 null이고
+   태그는 사전 값만 준다. 백엔드는 초안(DRAFT)으로 저장하고 사람이 승인한 것만 화면에 낸다.
 
 실행: uvicorn app.main:app --host 0.0.0.0 --port 8000
 """
@@ -27,12 +29,16 @@ from tripin_ai.explain.course_index import CourseIndex
 from tripin_ai.explain.llm import default_client
 from tripin_ai.explain.prompts import Place
 from tripin_ai.explain.service import explain
+from tripin_ai.summary.prompts import SummaryPlace
+from tripin_ai.summary.service import summarize_attractions, summarize_region
 from tripin_ai.templates import (TEMPLATE_SETS, Attraction, LikedTrip, ServiceProfile, TravelerSurvey,
                                  attraction_text, profile_text, traveler_text)
 
 from .config import Settings, load_settings
-from .schemas import (AttractionIn, BatchItemOut, BatchRequest, BatchResponse, EmbeddingRequest, EmbeddingResponse,
-                      ExplanationRequest, ExplanationResponse, ProfileIn, ReasonOut)
+from .schemas import (AttractionIn, AttractionSummaryOut, AttractionSummaryRequest, AttractionSummaryResponse,
+                      BatchItemOut, BatchRequest, BatchResponse, EmbeddingRequest, EmbeddingResponse,
+                      ExplanationRequest, ExplanationResponse, ProfileIn, ReasonOut, RegionSummaryRequest,
+                      RegionSummaryResponse, SummaryPlaceIn)
 
 log = logging.getLogger("tripin.embedding")
 
@@ -216,3 +222,39 @@ def explain_course(request: ExplanationRequest):
         ai_generated="llm" in {result.title_source, result.intro_source, *result.reason_sources.values()},
         prompt_version=result.prompt_version, generator_model=result.generator_model,
         example_course_ids=result.example_course_ids)
+
+
+def _summary_place(p: SummaryPlaceIn) -> SummaryPlace:
+    return SummaryPlace(id=p.id, name=p.name, class_names=class_names_of(p.lcls_systm1, p.lcls_systm2, p.lcls_systm3),
+                        region_name=p.region_name, description=p.description,
+                        codes=(p.lcls_systm1, p.lcls_systm2, p.lcls_systm3))
+
+
+@app.post("/summaries/attractions", response_model=AttractionSummaryResponse, response_model_by_alias=True)
+def summarize_attraction_batch(request: AttractionSummaryRequest):
+    """임베딩 모델이 필요 없어 모델 로딩 중에도 받는다."""
+    start = time.perf_counter()
+    if any(not p.name.strip() for p in request.items) or len({p.id for p in request.items}) != len(request.items):
+        raise HTTPException(status_code=400, detail={"code": "INVALID_ITEMS"})
+    batch = summarize_attractions([_summary_place(p) for p in request.items], state.llm)
+    log.info("summarized attractions requestId=%s items=%d llm=%d llmError=%s ms=%.0f", request.request_id,
+             len(batch.items), sum(i.source == "llm" for i in batch.items), batch.llm_error,
+             (time.perf_counter() - start) * 1000)
+    return AttractionSummaryResponse(
+        items=[AttractionSummaryOut(id=i.id, one_line=i.one_line, tags=i.tags, basis=i.basis, source=i.source,
+                                    problems=i.problems) for i in batch.items],
+        prompt_version=batch.prompt_version, generator_model=batch.generator_model, llm_error=batch.llm_error)
+
+
+@app.post("/summaries/region", response_model=RegionSummaryResponse, response_model_by_alias=True)
+def summarize_region_card(request: RegionSummaryRequest):
+    start = time.perf_counter()
+    if any(not p.name.strip() for p in request.attractions):
+        raise HTTPException(status_code=400, detail={"code": "EMPTY_NAME"})
+    batch = summarize_region(request.class_counts, [_summary_place(p) for p in request.attractions], state.llm)
+    summary = batch.items[0]
+    log.info("summarized region requestId=%s attractions=%d source=%s llmError=%s ms=%.0f", request.request_id,
+             len(request.attractions), summary.source, batch.llm_error, (time.perf_counter() - start) * 1000)
+    return RegionSummaryResponse(tagline=summary.tagline, tags=summary.tags, source=summary.source,
+                                 problems=summary.problems, prompt_version=batch.prompt_version,
+                                 generator_model=batch.generator_model, llm_error=batch.llm_error)
