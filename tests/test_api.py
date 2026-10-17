@@ -20,7 +20,7 @@ class FakeEncoder:
     def __init__(self):
         self.texts = []
 
-    def encode(self, texts):
+    def encode(self, texts, role="passage"):
         self.texts += texts
         vectors = []
         for t in texts:

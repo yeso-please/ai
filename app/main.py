@@ -61,7 +61,10 @@ state = State()
 def encoder_factory(settings: Settings):
     """테스트에서 가짜 인코더로 바꿔 끼운다."""
     from tripin_ai.encoder import Encoder
-    return Encoder(settings.model_name, settings.model_version)
+    encoder = Encoder(settings.model_name, settings.model_version, settings.input_format)
+    if encoder.input_format == "e5" and (settings.template_versions != (3,) or encoder.dimension != 768):
+        raise ValueError("Trained E5 serving requires template 3 and 768 dimensions")
+    return encoder
 
 
 def course_index_path(settings: Settings) -> str:
@@ -177,7 +180,7 @@ def embed_profile(request: EmbeddingRequest):
     text = compose_profile(request.profile, request.template_version)
     if not text:
         raise HTTPException(status_code=400, detail={"code": "EMPTY_PROFILE"})
-    vector = encoder.encode([text])[0]
+    vector = encoder.encode([text], role="query")[0]
     log.info("embedded requestId=%s chars=%d ms=%.0f", request.request_id, len(text), (time.perf_counter() - start) * 1000)
     return EmbeddingResponse(embedding_base64=to_base64(vector), dimension=int(vector.shape[0]))
 
@@ -192,7 +195,7 @@ def embed_attractions(request: BatchRequest):
     if any(not item.name.strip() for item in request.items):
         raise HTTPException(status_code=400, detail={"code": "EMPTY_NAME"})
     texts = [compose_attraction(item, request.template_version) for item in request.items]
-    vectors = encoder.encode(texts)
+    vectors = encoder.encode(texts, role="passage")
     log.info("embedded batch items=%d ms=%.0f", len(texts), (time.perf_counter() - start) * 1000)
     return BatchResponse(dimension=int(vectors.shape[1]),
                          items=[BatchItemOut(id=item.id, embedding_base64=to_base64(v)) for item, v in zip(request.items, vectors)])

@@ -12,7 +12,7 @@
 from dataclasses import dataclass, field
 
 ATTRACTION_TEMPLATES = ("v0", "v1", "v2")
-TRAVELER_TEMPLATES = ("aihub-v1",)
+TRAVELER_TEMPLATES = ("aihub-v1", "aihub-v2")
 PROFILE_TEMPLATES = ("service-v1",)
 DESCRIPTION_MAX_CHARS = 300
 NOTE_MAX_CHARS = 200
@@ -23,6 +23,7 @@ NOTE_MAX_CHARS = 200
 TEMPLATE_SETS = {
     1: ("service-v1", "v1"),
     2: ("aihub-v1", "v2"),
+    3: ("aihub-v2", "v2"),
 }
 
 CONTENT_TYPE_LABELS = {
@@ -134,7 +135,7 @@ def traveler_text(survey: TravelerSurvey, version: str = "aihub-v1") -> str:
     if motives:
         sentences.append("여행에서 원하는 것은 " + ", ".join(motives) + ".")
     regions = [r for r in dict.fromkeys(survey.liked_regions) if r]
-    if regions:
+    if regions and version == "aihub-v1":
         sentences.append("좋아하는 여행지는 " + ", ".join(regions) + ".")
     return " ".join(sentences)
 

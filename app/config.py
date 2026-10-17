@@ -12,6 +12,7 @@ class Settings:
     model_version: str     # 요청의 modelVersion과 같아야 한다
     template_versions: tuple[int, ...]  # 요청 templateVersion 허용 목록 (tripin_ai.templates.TEMPLATE_SETS)
     max_batch_items: int
+    input_format: str = "auto"
 
 
 def _template_versions() -> tuple[int, ...]:
@@ -34,4 +35,5 @@ def load_settings() -> Settings:
         model_version=os.environ.get("MODEL_VERSION", DEFAULT_MODEL_VERSION),
         template_versions=_template_versions(),
         max_batch_items=int(os.environ.get("MAX_BATCH_ITEMS", "64")),
+        input_format=os.environ.get("MODEL_INPUT_FORMAT", "auto"),
     )
