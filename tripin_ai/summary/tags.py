@@ -7,7 +7,10 @@
   2. 설명 키워드 규칙: 분류코드로 알 수 없는 카페·야경·꽃·시장·골목·산책.
   3. 분위기 태그(감성여행·힐링·가족여행·데이트)만 LLM이 사전 안에서 고른다(service.py).
 """
+import json
 from collections import Counter
+from functools import lru_cache
+from pathlib import Path
 
 DICTIONARY = (
     "바다", "산", "숲", "호수·강", "섬", "꽃",
@@ -73,9 +76,20 @@ KEYWORD_TAGS: dict[str, tuple[str, ...]] = {
 }
 
 # 지역 태그: 지역 관광지 분류 중 이 비율 이상이고 이 수 이상일 때 규칙으로 붙인다.
-REGION_MIN_SHARE = 0.08
+# 2026-10-17: 비율만 보면 어디에나 많은 역사·체험이 위로 올라와 지역 특징(예: 해운대의 바다)이 묻혔다.
+# 이제 특징도(지역 비율 / 전국 비율)가 높은 순으로 고른다. 우연히 한두 곳뿐인 태그는 최소 수·비율로 거른다.
+REGION_MIN_SHARE = 0.04
 REGION_MIN_COUNT = 3
 REGION_MAX_RULE_TAGS = 3
+BASELINE_PATH = Path(__file__).resolve().parents[2] / "data" / "reference" / "region_tag_baseline.json"
+
+
+@lru_cache(maxsize=1)
+def national_shares() -> dict[str, float]:
+    """전국 태그 비율(data/reference/region_tag_baseline.json). 파일이 없으면 빈 값 → 비율 순으로 고른다."""
+    if not BASELINE_PATH.exists():
+        return {}
+    return json.loads(BASELINE_PATH.read_text(encoding="utf-8")).get("nationalShare", {})
 
 
 def code_tags(*codes: str | None) -> list[str]:
@@ -107,24 +121,30 @@ def attraction_rule_tags(lcls1: str | None, lcls2: str | None, lcls3: str | None
     return tags[:MAX_TAGS]
 
 
-def region_rule_tags(class_counts: dict[str, int]) -> list[str]:
-    """지역 관광지 분류 분포 → 규칙 태그. 쇼핑(SH)은 면세점·마트가 많아 분모에서 빼고, 시장만 따로 센다."""
+def region_rule_tags(class_counts: dict[str, int], representative_tags: list[list[str]] | None = None) -> list[str]:
+    """지역 관광지 분류 분포 → 규칙 태그(최대 3개). 쇼핑(SH)은 면세점·마트가 많아 분모에서 뺀다.
+
+    3곳 이상·비율 4% 이상인 태그를 특징도(지역 비율 / 전국 비율) 순으로 고른다.
+    고를 것이 없으면 대표 관광지들의 규칙 태그 중 많이 나온 것으로 채운다(분류 데이터가 적은 지역).
+    """
     base = sum(n for code, n in class_counts.items() if not code.startswith("SH"))
-    scores: Counter[str] = Counter()
+    counts: Counter[str] = Counter()
     for code, n in class_counts.items():
         for tag in code_tags(code):
-            if tag in MOOD_TAGS:
-                continue
-            scores[tag] += n
-    picked = []
-    for tag, n in scores.most_common():
-        if tag == "시장":
-            ok = n >= REGION_MIN_COUNT
-        else:
-            ok = n >= REGION_MIN_COUNT and base > 0 and n / base >= REGION_MIN_SHARE
-        if ok:
-            picked.append(tag)
-    return picked[:REGION_MAX_RULE_TAGS]
+            if tag not in MOOD_TAGS:
+                counts[tag] += n
+    national = national_shares()
+    scored = []
+    for tag, n in counts.items():
+        if n < REGION_MIN_COUNT or base == 0 or n / base < REGION_MIN_SHARE:
+            continue
+        share = n / base
+        scored.append((share / national[tag] if national.get(tag) else share, tag))
+    picked = [tag for _, tag in sorted(scored, key=lambda item: -item[0])][:REGION_MAX_RULE_TAGS]
+    if not picked and representative_tags:
+        votes = Counter(tag for tags in representative_tags for tag in dict.fromkeys(tags) if tag not in MOOD_TAGS)
+        picked = [tag for tag, _ in votes.most_common(REGION_MAX_RULE_TAGS)]
+    return picked
 
 
 def merge_tags(rule: list[str], llm: list, support_text: str) -> list[str]:

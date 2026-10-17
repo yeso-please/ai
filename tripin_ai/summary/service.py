@@ -84,7 +84,7 @@ def summarize_attractions(places: list[SummaryPlace], llm: LLMClient | None) -> 
 
 
 def summarize_region(class_counts: dict[str, int], places: list[SummaryPlace], llm: LLMClient | None) -> Batch:
-    rule = region_rule_tags(class_counts)
+    rule = region_rule_tags(class_counts, [attraction_rule_tags(*p.codes, p.name, p.description) for p in places])
     support = " ".join(f"{p.name} {p.description}" for p in places)
     result, error = _call(llm, REGION_SYSTEM, build_region_prompt(rule, places))
     if result is None:

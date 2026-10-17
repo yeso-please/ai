@@ -160,3 +160,17 @@ def test_category_default_tag_when_no_rule_or_keyword():
     assert attraction_rule_tags("VE", "VE12", "VE129999", "어느 시설", "설명") == ["감성여행"]
     assert attraction_rule_tags("NA", "NA99", "NA999999", "어느 자연", "설명") == ["힐링"]
     assert attraction_rule_tags(None, None, None, "분류 없음", "설명") == []
+
+
+def test_region_tags_rank_by_distinctiveness_not_raw_share():
+    # 역사·체험은 어디에나 많다. 해변 비중이 전국 평균보다 훨씬 높으면 바다가 먼저다(2026-10-17)
+    counts = {"HS010100": 30, "EX030100": 20, "NA020900": 8, "VE030100": 10}
+    tags = region_rule_tags(counts)
+    assert tags[0] == "바다"
+    assert len(tags) == 3
+
+
+def test_region_tags_fall_back_to_representative_attractions():
+    # 분류 데이터가 적어 규칙 태그가 없으면 대표 관광지 태그 중 많이 나온 것
+    assert region_rule_tags({"NA020900": 1}, [["바다"], ["바다", "힐링"], ["산"]]) == ["바다", "산"]
+    assert region_rule_tags({}, None) == []
