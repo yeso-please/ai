@@ -6,7 +6,7 @@
 
 | 폴더 | 내용 |
 |---|---|
-| `app/` | FastAPI 서버: 임베딩(`/embeddings`, `/embeddings/batch`, `/health`) #1·#2, 코스 소개(`/explanations`) #7, 한 줄 소개·태그(`/summaries/*`) backend#89 |
+| `app/` | FastAPI 서버: 임베딩(`/embeddings`, `/embeddings/batch`, `/health`) #1·#2, 코스 소개(`/explanations`) #7, 성향 맞춤 지역 문장(`/explanations/region-match`), 한 줄 소개·태그(`/summaries/*`) backend#89 |
 | `tripin_ai/` | 서버와 실험이 같이 쓰는 코어: 문장 템플릿, 인코더, 평가(`evaluation/`), 학습(`training/`) |
 | `scripts/` | 데이터 수집·정리, 오프라인 임베딩, 평가, 파인튜닝 |
 | `reports/` | 실험 결과 (집계만) |
@@ -92,6 +92,20 @@ python -m venv .venv
 - 비슷한 관광공사 추천코스를 **임베딩으로 검색해 문체 예시**로 주고(RAG), 사실은 `places`에 있는 것만 쓰게 한다. 결과를 검증(예시 코스의 장소·근거 없는 숫자·과장 표현·예시 문장 베끼기·길이)하고, 걸린 부분만 규칙 문장으로 대체한다.
 - `reason`은 모두에게 보여도 되는 문장이다. 🔒 `personalReason`(좋아하신 여행지 언급)은 **취향 기준 회원 본인에게만** 보여 준다. `closestLikedRegion`은 LLM에 보내지 않는다.
 - `aiGenerated`가 true면 화면에 "AI가 작성" 표시. 소개글은 편집을 마치고 저장할 때 다시 만든다(백엔드).
+
+- 백엔드는 코스를 만든 직후(5-1) 이 API를 부른다(2026-10-16 D16). `places[].id`는 코스 항목 ID(`a-…`), 설명은 관광지 원천 설명이다. 백엔드는 `source: llm`인 이유만 쓰고, `rule`이면 자기 근거 기반 이유를 둔다.
+
+**`POST /explanations/region-match`** — 성향 맞춤 지역 문장 (backend 7-6, 디자인 B4)
+
+```json
+{"requestId": "r1", "personaName": "낭만적인 기록가", "personaSummary": "여행의 감정과 장면을 기억으로 남기는 타입",
+ "personaLikes": ["골목", "카페"], "regionName": "강원특별자치도 강릉시", "tagline": "바다와 카페 사이, 느긋하게 머무는 곳",
+ "tags": ["바다", "카페"], "landmarks": [{"name": "경포해변", "oneLine": "…", "category": null}]}
+```
+→ `{"text", "source", "problems", "promptVersion", "generatorModel", "llmError"}`
+
+- 2~3문장, 160자 이내. 사실은 지역 근거(태그·태그라인·대표 관광지와 한 줄 소개)에만 기대고, 검증(길이·과장 표현·근거 없는 숫자)에 걸리면 규칙 문장(`source: rule`)이다.
+- 🔒 회원 설문 답·닉네임은 받지 않는다(성향 이름·요약만). 백엔드가 지역 × 16유형 조합으로 LLM 문장을 기억한다. 표시용이며 추천 계산에 쓰지 않는다.
 
 **`POST /summaries/attractions`** — 관광지 한 줄 소개·태그 초안 (backend#89). 한 번에 1~10곳, LLM 호출 1회
 

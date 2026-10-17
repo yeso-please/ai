@@ -8,6 +8,7 @@
    로그에는 requestId, 문장 길이, 건수, 처리 시간만 남긴다.
 
 코스 소개·추천 이유(#7): POST /explanations. LLM(Gemini) 키가 없거나 실패·검증 실패면 규칙 문장으로 대체한다.
+성향 맞춤 지역 문장(backend 7-6): POST /explanations/region-match. 실패·검증 실패면 규칙 문장.
 한 줄 소개·태그(backend#89): POST /summaries/attractions, /summaries/region. 검증에 걸린 문장은 null이고
    태그는 사전 값만 준다. 백엔드는 초안(DRAFT)으로 저장하고 사람이 승인한 것만 화면에 낸다.
 
@@ -28,6 +29,7 @@ from tripin_ai.encoder import to_base64
 from tripin_ai.explain.course_index import CourseIndex
 from tripin_ai.explain.llm import default_client
 from tripin_ai.explain.prompts import Place
+from tripin_ai.explain.region_match import Landmark, RegionMatchInput, match_region
 from tripin_ai.explain.service import explain
 from tripin_ai.summary.prompts import SummaryPlace
 from tripin_ai.summary.service import summarize_attractions, summarize_region
@@ -37,7 +39,8 @@ from tripin_ai.templates import (TEMPLATE_SETS, Attraction, LikedTrip, ServicePr
 from .config import Settings, load_settings
 from .schemas import (AttractionIn, AttractionSummaryOut, AttractionSummaryRequest, AttractionSummaryResponse,
                       BatchItemOut, BatchRequest, BatchResponse, EmbeddingRequest, EmbeddingResponse,
-                      ExplanationRequest, ExplanationResponse, ProfileIn, ReasonOut, RegionSummaryRequest,
+                      ExplanationRequest, ExplanationResponse, ProfileIn, ReasonOut, RegionMatchRequest, RegionMatchResponse,
+                      RegionSummaryRequest,
                       RegionSummaryResponse, SummaryPlaceIn)
 
 log = logging.getLogger("tripin.embedding")
@@ -258,3 +261,21 @@ def summarize_region_card(request: RegionSummaryRequest):
     return RegionSummaryResponse(tagline=summary.tagline, tags=summary.tags, source=summary.source,
                                  problems=summary.problems, prompt_version=batch.prompt_version,
                                  generator_model=batch.generator_model, llm_error=batch.llm_error)
+
+
+@app.post("/explanations/region-match", response_model=RegionMatchResponse, response_model_by_alias=True)
+def explain_region_match(request: RegionMatchRequest):
+    """임베딩 모델이 필요 없어 모델 로딩 중에도 받는다."""
+    start = time.perf_counter()
+    if not request.persona_name.strip() or not request.region_name.strip():
+        raise HTTPException(status_code=400, detail={"code": "EMPTY_NAME"})
+    result = match_region(RegionMatchInput(
+        persona_name=request.persona_name, persona_summary=request.persona_summary,
+        persona_likes=request.persona_likes, region_name=request.region_name, tagline=request.tagline or "",
+        tags=request.tags, landmarks=[Landmark(l.name, l.one_line or "", l.category or "") for l in request.landmarks]),
+        state.llm)
+    log.info("region match requestId=%s source=%s llmError=%s ms=%.0f", request.request_id, result.source,
+             result.llm_error, (time.perf_counter() - start) * 1000)
+    return RegionMatchResponse(text=result.text, source=result.source, problems=result.problems,
+                               prompt_version=result.prompt_version, generator_model=result.generator_model,
+                               llm_error=result.llm_error)

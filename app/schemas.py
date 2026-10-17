@@ -153,3 +153,30 @@ class RegionSummaryResponse(CamelModel):
     prompt_version: str
     generator_model: str | None
     llm_error: str | None
+
+
+class RegionLandmarkIn(CamelModel):
+    name: str
+    one_line: str | None = None
+    category: str | None = None
+
+
+class RegionMatchRequest(CamelModel):
+    """backend 7-6. 🔒 회원 설문 답·닉네임은 받지 않는다(성향 이름·요약만)."""
+    request_id: str
+    persona_name: str
+    persona_summary: str = ""
+    persona_likes: list[str] = Field(default_factory=list)
+    region_name: str
+    tagline: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    landmarks: list[RegionLandmarkIn] = Field(default_factory=list, max_length=8)
+
+
+class RegionMatchResponse(CamelModel):
+    text: str
+    source: str                       # "llm" | "rule"
+    problems: list[str]
+    prompt_version: str
+    generator_model: str | None
+    llm_error: str | None
