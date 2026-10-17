@@ -16,13 +16,15 @@
 
 ## 서버 실행
 
+공유 개발 RDS 연결에는 아래 **학습한 E5 연결** 설정을 사용합니다. 바로 다음 명령과 기본값 표는 범용 MiniLM 개발 실행용입니다.
+
 ```bash
 python -m venv .venv
 .venv/Scripts/python -m pip install -e ".[serve,dev]"
 .venv/Scripts/python -m uvicorn app.main:app --port 8000
 ```
 
-| 환경변수 | 기본값 | 설명 |
+| 환경변수 | Python 범용 기본값 | 설명 |
 |---|---|---|
 | `MODEL_NAME` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Hugging Face 모델 id 또는 파인튜닝한 모델 폴더 |
 | `MODEL_VERSION` | `mminilm-l12-v1` | 백엔드 `embedding.model-version`과 같아야 한다 |
@@ -33,9 +35,37 @@ python -m venv .venv
 | `COURSE_INDEX_PATH` | `data/interim/course_index/<MODEL_VERSION>.npz` | 관광공사 추천코스 색인 (`scripts/build_course_index.py`) |
 | `EXPLAIN_CLAIM_CHECK` | `0` | `1`이면 소개글 사실 주장을 LLM으로 한 번 더 확인 (호출 2배, 현재 판정이 엄격해 기본 끔) |
 
-기성 모델은 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`이며 CPU에서 로딩한다. 모델 로딩(CPU 약 20초) 동안 요청은 503을 받는다(백엔드가 재시도). `/health`가 `UP`, `modelVersion=mminilm-l12-v1`, `templateVersions=[1,2]`, `dimension=384`를 반환해야 준비 완료다. Docker: `docker build -t tripin-ai . && docker run -p 8000:8000 tripin-ai`
+기성 모델은 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`이며 CPU에서 로딩한다. 모델 로딩(CPU 약 20초) 동안 요청은 503을 받는다(백엔드가 재시도). `/health`가 `UP`, `modelVersion=mminilm-l12-v1`, `templateVersions=[1,2]`, `dimension=384`를 반환해야 준비 완료다. Docker 이미지는 아래 E5 설정을 기본 사용하므로 체크포인트 마운트가 필요하다.
 
 ## 백엔드와의 계약
+
+### 학습한 E5 연결
+
+2022·2023년 TL로 학습한 `e5-base-rating-2022-2023-t4-all-v2` 체크포인트는
+`data/interim/models/e5-base-rating-2022-2023-t4-all-v2/final`에 별도로 보관합니다.
+추가 학습 없이 이 모델을 사용합니다. 모델 파일은 Git에 넣지 않고 서버에 읽기 전용 마운트합니다.
+
+```powershell
+$env:MODEL_NAME='data/interim/models/e5-base-rating-2022-2023-t4-all-v2/final'
+$env:MODEL_VERSION='e5-base-rating-2022-2023-t4-all-v2'
+$env:MODEL_INPUT_FORMAT='e5'
+$env:TEMPLATE_VERSIONS='3'
+$env:MAX_BATCH_ITEMS='8'
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+템플릿 3은 스타일 1·3·5·6과 동기만 사용합니다. 선호 지역·MBTI는 넣지 않습니다.
+E5는 회원 `query: ` / 관광지 `passage: `, 최대256토큰, L2 정규화 float32 768차원입니다.
+모델 버전은 체크포인트의 `training_info.json`과 일치해야 합니다.
+실제 저장 모델의 학습 입력 일치·API 응답 확인: `python scripts/check_e5_serving.py`.
+백엔드 적용 절차는 `backend/docs/runbooks/e5-model-switch.md`, Docker 기본 설정은 `backend/compose.dev.yaml`(기존 `compose.e5.yaml` override도 유지)입니다.
+개발 RDS와 Docker 이미지의 기본 설정은 E5입니다. 체크포인트를 `/models/final`에 마운트해야 합니다. Python 라이브러리의 범용 기본 모델은 기존 MiniLM이며 직접 실행할 때는 위 E5 환경변수를 모두 지정합니다.
+
+backend와 ai의 E5 변경을 함께 반영하고 두 서버를 재시작해야 합니다. PR 병합만으로 기존 서버나 체크포인트가 갱신되지는 않습니다. 개발 RDS의 추천 대상 관광지 8,287곳은 이미 E5로 변환돼 있으므로 MiniLM 서버를 계속 연결하면 개인화 벡터가 일치하지 않습니다.
+
+`model.safetensors` SHA256: `d5168644835c8d052efc3a3d37dd4c35a7754b72fa7eb9b2cd447f1318f7c187`. 가중치만 복사하지 말고 `training_info.json`, `modules.json`, 토크나이저·설정과 pooling 설정을 포함한 `final` 전체 폴더를 전달받습니다.
+
+아래 요청 예시는 기존 MiniLM 계약입니다. E5 요청은 `modelVersion=e5-base-rating-2022-2023-t4-all-v2`, `templateVersion=3`, 회원 프로필 `travelStyles`·`travelMotives`를 사용하며 응답은768차원입니다.
 
 **`POST /embeddings`** — 회원 취향 벡터 (백엔드 `HttpEmbeddingClient`, 설정 `EMBEDDING_SERVICE_BASE_URL`)
 
@@ -67,14 +97,14 @@ python -m venv .venv
 - 처리 시간(CPU, 기성 MiniLM): 64건 약 0.6초 → 전국 관광지 약 3.2만 곳이면 약 5분(설명을 붙이면 더 걸린다).
 - 분류는 TourAPI KorService2 **새 분류체계 `lclsSystm1~3`**(옛 `cat1~3`은 대부분 비어 있다). template 2는 `contentTypeId`의 관광지·문화시설·축제·레포츠 유형을 포함한다. `contentTypeId`는 숫자(`12`)와 문자열(`"12"`)을 모두 받는다(backend는 숫자로 보낸다). `tags`는 요청에서 받지만 현재 학습 데이터 분포와 맞지 않아 임베딩 문장에는 넣지 않는다.
 
-서버는 템플릿 1·2 요청을 모두 받을 수 있다. 템플릿 1은 구형 프로필·관광지 규칙, 템플릿 2는 AI Hub 프로필·관광지 유형 포함 규칙의 묶음이다. 이중 지원은 구형 대기 작업과 신규 설문을 함께 처리한다. 특정 버전만 허용하려면 `TEMPLATE_VERSIONS=2`처럼 명시한다. `TEMPLATE_VERSION` 단일 버전 설정은 사용하지 않는다. 템플릿 번호 의미는 불변이며 규칙 변경에는 새 번호를 발급한다.
+범용 MiniLM 서버는 템플릿 1·2 요청을 모두 받을 수 있다. E5 배포는 템플릿3만 허용한다. 템플릿 1은 구형 프로필·관광지 규칙, 템플릿 2는 AI Hub 프로필·관광지 유형 포함 규칙의 묶음이다. 이중 지원은 구형 대기 작업과 신규 설문을 함께 처리한다. 특정 버전만 허용하려면 `TEMPLATE_VERSIONS=2`처럼 명시한다. `TEMPLATE_VERSION` 단일 버전 설정은 사용하지 않는다. 템플릿 번호 의미는 불변이며 규칙 변경에는 새 번호를 발급한다.
 
 **공통**
 
 | 항목 | 내용 |
 |---|---|
 | 벡터 형식 | L2 정규화한 **float32 리틀엔디언** 바이트를 base64로 |
-| 차원 | 백엔드 `embedding.expected-dimension`(384)과 같아야 한다 |
+| 차원 | 백엔드 `embedding.expected-dimension`(E5 768, MiniLM 384)과 같아야 한다 |
 | 버전 | 요청 `modelVersion`이 서버 `MODEL_VERSION`과 다르거나 `templateVersion`이 `TEMPLATE_VERSIONS`에 없으면 **409**. 다른 모델·규칙의 벡터가 섞이지 않게 한다 |
 | 상태 코드 | 200 / 400 형식 오류·빈 문장(재시도 안 함) / 409 버전 불일치(재시도 안 함) / 503 로딩 중(재시도) / 500 예상 못 한 오류(재시도) |
 | 개인정보 | 프로필·메모·합성 문장은 로그와 오류 응답에 남기지 않는다. 형식 오류 응답도 입력값을 되돌려 주지 않는다 |
