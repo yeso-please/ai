@@ -7,7 +7,10 @@
   2. 설명 키워드 규칙: 분류코드로 알 수 없는 카페·야경·꽃·시장·골목·산책.
   3. 분위기 태그(감성여행·힐링·가족여행·데이트)만 LLM이 사전 안에서 고른다(service.py).
 """
+import json
 from collections import Counter
+from functools import lru_cache
+from pathlib import Path
 
 DICTIONARY = (
     "바다", "산", "숲", "호수·강", "섬", "꽃",
@@ -26,19 +29,25 @@ CODE_TAGS: dict[str, tuple[str, ...]] = {
     "NA020100": ("호수·강",), "NA020200": ("호수·강",), "NA020300": ("호수·강",), "NA020400": ("호수·강",),
     "NA020500": ("섬", "바다"), "NA020600": ("바다",), "NA020700": ("바다",), "NA020800": ("바다",),
     "NA020900": ("바다",),
-    "NA030400": ("산책",),
+    "NA030100": ("체험",), "NA030200": ("숲",), "NA030300": ("산",), "NA030400": ("산책",), "NA030500": ("산책",),
+    "NA040400": ("산",), "NA050100": ("산책",),
     "NA040100": ("산",), "NA040200": ("산",), "NA040300": ("산",),
     "NA040500": ("산책",), "NA040600": ("숲", "힐링"), "NA040700": ("꽃", "숲"),
     # 역사
     "HS01": ("역사",), "HS010400": ("전통", "역사"), "HS010500": ("역사", "전통"), "HS010600": ("전통", "역사"),
-    "HS02": ("역사",), "HS020300": ("사찰", "역사"), "HS030100": ("사찰",), "HS04": ("역사",),
+    "HS02": ("역사",), "HS020300": ("사찰", "역사"), "HS030100": ("사찰",), "HS030200": ("역사",), "HS030300": ("역사",),
+    "HS030400": ("역사",), "HS04": ("역사",),
     # 문화
-    "VE010200": ("야경",), "VE010800": ("바다",),
+    "VE010200": ("야경",), "VE010300": ("야경", "산책"), "VE010500": ("역사",), "VE010800": ("바다",),
     "VE020100": ("액티비티", "가족여행"), "VE020200": ("액티비티", "가족여행"),
     "VE020300": ("가족여행",), "VE020400": ("가족여행", "바다"),
     "VE03": ("산책",), "VE040100": ("골목",), "VE040200": ("골목",), "VE040300": ("산책",),
     "VE070100": ("박물관",), "VE070200": ("박물관", "역사"), "VE070300": ("박물관",), "VE070500": ("박물관", "가족여행"),
-    "VE070600": ("박물관",), "VE090400": ("전통",),
+    "VE070600": ("박물관",), "VE070400": ("체험",), "VE090400": ("전통",),
+    "VE050100": ("가족여행",), "VE050200": ("힐링",), "VE060100": ("감성여행",), "VE060200": ("감성여행",),
+    "VE100100": ("액티비티",), "VE100200": ("액티비티",),
+    # 축제·공연·행사
+    "EV": ("체험",),
     # 체험·레저
     "EX01": ("전통", "체험"), "EX02": ("체험",), "EX03": ("체험", "가족여행"), "EX04": ("사찰", "체험"),
     "EX05": ("힐링",), "EX06": ("체험",), "EX070100": ("바다", "체험"), "EX070200": ("체험",),
@@ -48,6 +57,11 @@ CODE_TAGS: dict[str, tuple[str, ...]] = {
     "SH060100": ("시장",), "SH060200": ("시장",),
     # 음식
     "FD050100": ("카페",), "FD050200": ("카페", "전통"),
+}
+
+# 분류 규칙·키워드로도 태그가 없으면 대분류 기본 태그 하나를 붙인다(2026-10-17). 카드에 태그가 비지 않게 한다.
+CATEGORY_DEFAULT_TAGS: dict[str, str] = {
+    "NA": "힐링", "HS": "역사", "VE": "감성여행", "EX": "체험", "LS": "액티비티", "EV": "체험", "SH": "시장",
 }
 
 # 분류코드로 알 수 없는 것만 설명 키워드로 붙인다. 바다·산처럼 분류가 있는 태그는 설명에 단어가 나와도 붙이지 않는다
@@ -62,15 +76,26 @@ KEYWORD_TAGS: dict[str, tuple[str, ...]] = {
 }
 
 # 지역 태그: 지역 관광지 분류 중 이 비율 이상이고 이 수 이상일 때 규칙으로 붙인다.
-REGION_MIN_SHARE = 0.08
+# 2026-10-17: 비율만 보면 어디에나 많은 역사·체험이 위로 올라와 지역 특징(예: 해운대의 바다)이 묻혔다.
+# 이제 특징도(지역 비율 / 전국 비율)가 높은 순으로 고른다. 우연히 한두 곳뿐인 태그는 최소 수·비율로 거른다.
+REGION_MIN_SHARE = 0.04
 REGION_MIN_COUNT = 3
 REGION_MAX_RULE_TAGS = 3
+BASELINE_PATH = Path(__file__).resolve().parents[2] / "data" / "reference" / "region_tag_baseline.json"
+
+
+@lru_cache(maxsize=1)
+def national_shares() -> dict[str, float]:
+    """전국 태그 비율(data/reference/region_tag_baseline.json). 파일이 없으면 빈 값 → 비율 순으로 고른다."""
+    if not BASELINE_PATH.exists():
+        return {}
+    return json.loads(BASELINE_PATH.read_text(encoding="utf-8")).get("nationalShare", {})
 
 
 def code_tags(*codes: str | None) -> list[str]:
     """가장 세분된 코드부터 접두어를 줄여 가며 처음 맞는 규칙을 쓴다."""
     for code in reversed([c for c in codes if c]):
-        for length in (8, 6, 4):
+        for length in (8, 6, 4, 2):
             if len(code) >= length and code[:length] in CODE_TAGS:
                 return list(CODE_TAGS[code[:length]])
     return []
@@ -89,27 +114,37 @@ def attraction_rule_tags(lcls1: str | None, lcls2: str | None, lcls3: str | None
     for tag in keyword_tags(f"{name} {description}"):
         if tag not in tags:
             tags.append(tag)
+    if not tags:
+        default = CATEGORY_DEFAULT_TAGS.get((lcls1 or (lcls3 or "")[:2] or "")[:2])
+        if default:
+            tags.append(default)
     return tags[:MAX_TAGS]
 
 
-def region_rule_tags(class_counts: dict[str, int]) -> list[str]:
-    """지역 관광지 분류 분포 → 규칙 태그. 쇼핑(SH)은 면세점·마트가 많아 분모에서 빼고, 시장만 따로 센다."""
+def region_rule_tags(class_counts: dict[str, int], representative_tags: list[list[str]] | None = None) -> list[str]:
+    """지역 관광지 분류 분포 → 규칙 태그(최대 3개). 쇼핑(SH)은 면세점·마트가 많아 분모에서 뺀다.
+
+    3곳 이상·비율 4% 이상인 태그를 특징도(지역 비율 / 전국 비율) 순으로 고른다.
+    고를 것이 없으면 대표 관광지들의 규칙 태그 중 많이 나온 것으로 채운다(분류 데이터가 적은 지역).
+    """
     base = sum(n for code, n in class_counts.items() if not code.startswith("SH"))
-    scores: Counter[str] = Counter()
+    counts: Counter[str] = Counter()
     for code, n in class_counts.items():
         for tag in code_tags(code):
-            if tag in MOOD_TAGS:
-                continue
-            scores[tag] += n
-    picked = []
-    for tag, n in scores.most_common():
-        if tag == "시장":
-            ok = n >= REGION_MIN_COUNT
-        else:
-            ok = n >= REGION_MIN_COUNT and base > 0 and n / base >= REGION_MIN_SHARE
-        if ok:
-            picked.append(tag)
-    return picked[:REGION_MAX_RULE_TAGS]
+            if tag not in MOOD_TAGS:
+                counts[tag] += n
+    national = national_shares()
+    scored = []
+    for tag, n in counts.items():
+        if n < REGION_MIN_COUNT or base == 0 or n / base < REGION_MIN_SHARE:
+            continue
+        share = n / base
+        scored.append((share / national[tag] if national.get(tag) else share, tag))
+    picked = [tag for _, tag in sorted(scored, key=lambda item: -item[0])][:REGION_MAX_RULE_TAGS]
+    if not picked and representative_tags:
+        votes = Counter(tag for tags in representative_tags for tag in dict.fromkeys(tags) if tag not in MOOD_TAGS)
+        picked = [tag for tag, _ in votes.most_common(REGION_MAX_RULE_TAGS)]
+    return picked
 
 
 def merge_tags(rule: list[str], llm: list, support_text: str) -> list[str]:

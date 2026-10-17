@@ -144,3 +144,33 @@ def test_api_region_summary_without_llm_returns_rule_tags(client, monkeypatch):
                                                "attractions": [{"id": "1", "name": "경포해변"}]})
     assert r.status_code == 200
     assert r.json()["tagline"] is None and r.json()["tags"] == ["바다"] and r.json()["llmError"] == "NO_LLM"
+
+
+def test_new_code_rules_cover_previously_untagged_categories():
+    # 2026-10-17: 태그가 비던 분류(공연장·기독교 성지·기암괴석·다리·축제 등)에도 사전 안의 태그를 붙인다
+    assert code_tags("VE", "VE06", "VE060100") == ["감성여행"]
+    assert code_tags("HS", "HS03", "HS030200") == ["역사"]
+    assert code_tags("NA", "NA03", "NA030300") == ["산"]
+    assert code_tags("VE", "VE01", "VE010300") == ["야경", "산책"]
+    assert code_tags("EV", "EV01", "EV010100") == ["체험"]
+
+
+def test_category_default_tag_when_no_rule_or_keyword():
+    # 세분류 규칙이 없고 설명 키워드도 없으면 대분류 기본 태그 하나
+    assert attraction_rule_tags("VE", "VE12", "VE129999", "어느 시설", "설명") == ["감성여행"]
+    assert attraction_rule_tags("NA", "NA99", "NA999999", "어느 자연", "설명") == ["힐링"]
+    assert attraction_rule_tags(None, None, None, "분류 없음", "설명") == []
+
+
+def test_region_tags_rank_by_distinctiveness_not_raw_share():
+    # 역사·체험은 어디에나 많다. 해변 비중이 전국 평균보다 훨씬 높으면 바다가 먼저다(2026-10-17)
+    counts = {"HS010100": 30, "EX030100": 20, "NA020900": 8, "VE030100": 10}
+    tags = region_rule_tags(counts)
+    assert tags[0] == "바다"
+    assert len(tags) == 3
+
+
+def test_region_tags_fall_back_to_representative_attractions():
+    # 분류 데이터가 적어 규칙 태그가 없으면 대표 관광지 태그 중 많이 나온 것
+    assert region_rule_tags({"NA020900": 1}, [["바다"], ["바다", "힐링"], ["산"]]) == ["바다", "산"]
+    assert region_rule_tags({}, None) == []
