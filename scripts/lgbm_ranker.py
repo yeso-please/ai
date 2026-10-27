@@ -26,10 +26,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from personal_ranker import profile_features
 from train_combined_t4 import TEXTS, TRAIN_2022, TRAIN_2023, mapped_visits, profile_texts
+from embed_offline import load_descriptions
+from tripin_ai.ranking.export import export_model
 from tripin_ai.evaluation.data import load
 from tripin_ai.evaluation.holdout import query_metrics, summarize
 
 MODEL_DIR = Path("data/interim/models/e5-base-rating-2022-2023-t4-all-v2/final")
+DESCRIPTIONS = Path("data/interim/descriptions_combined.csv")
+RANKER_VERSION = "lgbm-ranker-v1"
+EXPORT = Path("data/interim/models") / RANKER_VERSION
 OUT = Path("data/interim/eval_results/lgbm-ranker-v1")
 CACHE = OUT / "cache"
 MIN_CANDIDATES, NEG_PER_QUERY, PCA_DIMS, SEED = 20, 60, 16, 42
@@ -105,9 +110,15 @@ class Features:
                                      for f in CAT_FIELDS]).astype(np.int32)
         ids = sorted(item_vec)
         pca = PCA(PCA_DIMS, random_state=SEED).fit(np.stack([item_vec[i] for i in ids]))
+        self.pca = pca
         self.pcs = {i: p for i, p in zip(ids, pca.transform(np.stack([item_vec[i] for i in ids])).astype(np.float32))}
-        self.desc_len = a.text.str.len().to_numpy(np.float32)
-        self.names = (["e5_cos"] + SURVEY + CAT_FIELDS + [f"desc_pc{i}" for i in range(PCA_DIMS)] + ["desc_len"])
+        # 원래 설명 글자 수(공백 정리, 최대 300). 백엔드가 attractions.description으로 똑같이 계산한다.
+        descriptions = load_descriptions(str(DESCRIPTIONS))
+        self.desc_chars = np.array([min(len(" ".join(descriptions.get(c, "").split())), 300) for c in a.contentid],
+                                   np.float32)
+        self.vocab = {f: {value: code for code, value in
+                          enumerate(attractions[f].fillna("").astype("category").cat.categories)} for f in CAT_FIELDS}
+        self.names = (["e5_cos"] + SURVEY + CAT_FIELDS + [f"desc_pc{i}" for i in range(PCA_DIMS)] + ["desc_chars"])
 
     def rows(self, uid, items, survey_of=None):
         """survey_of: 설문(과 E5 사용자 벡터)을 가져올 여행자. 대조군은 남의 것을 넣는다."""
@@ -116,7 +127,7 @@ class Features:
         e5 = (self.item_matrix[items] @ u)[:, None]
         s = np.repeat(self.survey[self.user_index[who]][None, :], len(items), axis=0)
         pcs = np.stack([self.pcs[int(i)] for i in items])
-        return np.hstack([e5, s, self.cats[items].astype(np.float32), pcs, self.desc_len[items][:, None]])
+        return np.hstack([e5, s, self.cats[items].astype(np.float32), pcs, self.desc_chars[items][:, None]])
 
 
 def training_set(qs, feats, rng, objective):
@@ -149,6 +160,27 @@ def fit(train_q, valid_q, feats, objective, use_cols, rng):
     return model, cols
 
 
+def export_final(selected, feats, all_q):
+    """서비스용: TL+VL 전체로 같은 설정·같은 반복 수로 다시 학습해 내보낸다. 평가 수치는 위 TL 학습 모델의 것이다."""
+    EXPORT.mkdir(parents=True, exist_ok=True)
+    x, y, g = training_set(all_q, feats, np.random.default_rng(SEED), "B")
+    cat_idx = [i for i, n in enumerate(feats.names) if n in CAT_FIELDS]
+    data = lgb.Dataset(x, y, group=g, feature_name=feats.names, categorical_feature=cat_idx)
+    booster = lgb.train(PARAMS, data, num_boost_round=selected.best_iteration)
+    booster.save_model(str(EXPORT / "model.txt"))
+    pca = {"mean": feats.pca.mean_.astype(float).tolist(), "components": feats.pca.components_.astype(float).tolist()}
+    export_model(booster, EXPORT / "ranker.json", RANKER_VERSION, feats.names, feats.vocab, pca, extra={
+        "e5ModelVersion": "e5-base-rating-2022-2023-t4-all-v2",
+        "survey": {"styles": [1, 3, 5, 6], "styleTransform": "(value - 4) / 3", "motives": list(range(1, 10))},
+        "descChars": "min(len(collapse_whitespace(description)), 300)",
+        "trainedOn": "AI Hub 2022+2023 TL+VL, objective B (full candidates)", "iterations": selected.best_iteration})
+    # 백엔드 일치 검사용 실제 특성 행과 기대 점수(로컬 확인용, 커밋하지 않는다)
+    rows = x[:200]
+    (EXPORT / "parity_rows.json").write_text(json.dumps({"rows": rows.astype(float).tolist(),
+        "scores": booster.predict(rows, raw_score=True).astype(float).tolist()}), encoding="utf-8")
+    print("exported", EXPORT, flush=True)
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     a, base, t, v = prepare()
@@ -171,7 +203,7 @@ def main():
     survey = profile_features(t)
     feats = Features(a, base.attractions, item_vec, user_vec, survey, dict(zip(t.travel_id, range(len(t)))))
 
-    place_cols = CAT_FIELDS + [f"desc_pc{i}" for i in range(PCA_DIMS)] + ["desc_len"]
+    place_cols = CAT_FIELDS + [f"desc_pc{i}" for i in range(PCA_DIMS)] + ["desc_chars"]
     variants = {
         "lgbm_B_full": ("B", feats.names),
         "lgbm_B_place_only": ("B", place_cols),
@@ -237,6 +269,7 @@ def main():
     cv = cold_summary[(cold_summary.subset == "combined") & cold_summary.metric.isin(["ndcg_at_10", "hit_at_10"])]
     print("=== cold items (never visited in TL)")
     print(cv[["metric", "method", "value", "lo", "hi", "n_travelers", "diff_vs_random"]].to_string(index=False))
+    export_final(models["lgbm_B_full"][0], feats, train_q + valid_q + test_q)
     model, idx = models["lgbm_B_full"]
     gain = pd.Series(model.feature_importance("gain"), index=[feats.names[i] for i in idx]).sort_values(ascending=False)
     gain.to_csv(OUT / "feature_importance_gain.csv")
